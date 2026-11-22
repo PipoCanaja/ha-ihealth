@@ -128,13 +128,15 @@ class Po3ClassicClient:
         self._write_queue.put_nowait(frame)
 
     async def _writer_loop(self) -> None:
+        # Writes go out strictly in order (awaited one at a time). No extra
+        # delay: ACKs must reach the device promptly or it retransmits its
+        # challenge, which derails the handshake.
         while True:
             frame = await self._write_queue.get()
             if not self.connected:
                 continue
             try:
                 await self._client.write_gatt_char(CHAR_UUID, frame, response=False)
-                await asyncio.sleep(0.04)  # pace fragments (app sleeps ~10 ms)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug("%s: write failed: %s", self._ble_device.address, err)
 
