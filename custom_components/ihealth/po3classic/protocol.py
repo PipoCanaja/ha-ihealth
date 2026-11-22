@@ -13,10 +13,13 @@ Auth key material was recovered from libiHealth.so: getKey("PO3").
 """
 from __future__ import annotations
 
+import logging
 import os
 import struct
 from dataclasses import dataclass, field
 from datetime import datetime
+
+_LOGGER = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------
 # GATT  (service 128-bit "com.jiuan.POV11", one write+notify characteristic)
@@ -289,6 +292,7 @@ class Po3Session:
 
     def _flush(self) -> None:
         for frame in self.t.out:
+            _LOGGER.debug("TX %s", frame.hex())
             if self.writer:
                 self.writer(frame)
         self.t.out = []
@@ -328,7 +332,9 @@ class Po3Session:
 
     # ---- RX ----
     def feed(self, chunk: bytes) -> None:
+        _LOGGER.debug("RX %s", chunk.hex())
         for cmd, data in self.t.feed(chunk):
+            _LOGGER.debug("RX cmd 0x%02X data %s", cmd, data.hex())
             self._dispatch(cmd, data)
         self._flush()
 
