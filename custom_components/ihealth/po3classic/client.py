@@ -196,19 +196,38 @@ class Po3ClassicClient:
     async def measure(
         self,
         on_live: Callable[[LiveData], None] | None = None,
-        timeout: float = 120,
+        on_result: Callable[[LiveData], None] | None = None,
+        timeout: float = 600,
+        idle_timeout: float = 45,
     ) -> LiveData | None:
+        """Stream readings until the device goes quiet or disconnects.
+
+        The session is kept open for the whole time the oximeter is on. Live
+        frames update continuously via on_live; when the stream settles for
+        RESULT_SILENCE, on_result gets the last stable reading. We only stop
+        when the device disconnects or stays silent for idle_timeout (it was
+        switched off), never after a single reading.
+        """
         self._live_cb, self._last_live, self._last_valid = on_live, None, None
         self._session.start_measure()
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
+        settled = None
+        idle = 0.0
         try:
             while loop.time() < deadline and self.connected:
                 self._live_event.clear()
                 try:
                     await asyncio.wait_for(self._live_event.wait(), RESULT_SILENCE)
+                    idle = 0.0
                 except asyncio.TimeoutError:
-                    if self._last_valid:
+                    # a gap in the stream: publish the settled reading, keep going
+                    if self._last_valid and self._last_valid is not settled:
+                        settled = self._last_valid
+                        if on_result:
+                            on_result(settled)
+                    idle += RESULT_SILENCE
+                    if idle >= idle_timeout:
                         break
             return self._last_valid
         finally:

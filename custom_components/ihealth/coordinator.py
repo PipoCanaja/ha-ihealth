@@ -198,18 +198,20 @@ class Po3mCoordinator(DataUpdateCoordinator[Po3mData]):
                     self._update_device_registry(info)
                     self._device_info_done = True
 
-            result = await client.measure(on_live=self._on_live, timeout=MEASURE_TIMEOUT)
-            self._set(measuring=False)
-            if result:
-                _LOGGER.debug("%s: result %s", self.address, result)
-                self._set(
-                    spo2=result.spo2,
-                    pulse_rate=result.pulse_rate,
-                    perfusion_index=result.perfusion_index,
-                    measured_at=dt_util.utcnow(),
+            if classic:
+                # stay connected while the oximeter is on; publish each settled
+                # reading as it comes instead of ending after the first one
+                await client.measure(
+                    on_live=self._on_live,
+                    on_result=self._on_result,
+                    timeout=MEASURE_TIMEOUT,
                 )
-
-            if not classic:
+                self._set(measuring=False)
+            else:
+                result = await client.measure(on_live=self._on_live, timeout=MEASURE_TIMEOUT)
+                self._set(measuring=False)
+                if result:
+                    self._on_result(result)
                 if (history := await self._step(client.get_history)) is not None:
                     await self._import_history(history)
         except DISCONNECTED:
@@ -242,6 +244,16 @@ class Po3mCoordinator(DataUpdateCoordinator[Po3mData]):
             live_pulse_rate=live.pulse_rate,
             live_perfusion_index=live.perfusion_index,
             live_pulse_strength=live.pulse_strength,
+        )
+
+    @callback
+    def _on_result(self, result: LiveData) -> None:
+        _LOGGER.debug("%s: result %s", self.address, result)
+        self._set(
+            spo2=result.spo2,
+            pulse_rate=result.pulse_rate,
+            perfusion_index=result.perfusion_index,
+            measured_at=dt_util.utcnow(),
         )
 
     # ------------------------------------------------------------ offline memory
