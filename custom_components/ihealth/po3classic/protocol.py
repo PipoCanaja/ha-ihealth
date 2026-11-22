@@ -350,5 +350,9 @@ class Po3Session:
             self.authenticated = False
         elif cmd == CMD_MEASURE_ACK:  # device ready -> echo AC A6
             self._send(bytes([AC, CMD_MEASURE_ACK]))
+        elif cmd == CMD_STATUS:
+            # Newer firmware uses A8 in place of the A6 "ready" handshake: the
+            # device repeats it until the app echoes AC A8, then streams A7.
+            self._send(bytes([AC, CMD_STATUS]))
         if self.on_message:
             self.on_message(cmd, data)
