@@ -74,11 +74,17 @@ class Po3ClassicClient:
             self._ble_device.name or self._ble_device.address,
             disconnected_callback=self._on_disconnect,
         )
+        _LOGGER.debug("%s: connected, enabling notifications", self._ble_device.address)
         await self._client.start_notify(CHAR_UUID, self._on_notify)
+        await asyncio.sleep(0.3)  # let the device settle after CCCD write
         self._auth_event.clear()
         self._auth_ok = False
+        _LOGGER.debug("%s: starting authentication", self._ble_device.address)
         self._session.start_auth()
-        await asyncio.wait_for(self._auth_event.wait(), AUTH_TIMEOUT)
+        try:
+            await asyncio.wait_for(self._auth_event.wait(), AUTH_TIMEOUT)
+        except TimeoutError:
+            raise Po3Error("no FB challenge from device (auth timed out)") from None
         if not self._auth_ok:
             raise Po3Error("PO3 refused authentication")
         _LOGGER.debug("%s: authenticated (classic PO3)", self._ble_device.address)
@@ -102,6 +108,7 @@ class Po3ClassicClient:
 
     # ---- low level ----
     def _on_notify(self, _char, data: bytearray) -> None:
+        _LOGGER.debug("%s: notify %s", self._ble_device.address, bytes(data).hex())
         try:
             self._session.feed(bytes(data))
         except Po3Error as err:
@@ -113,11 +120,13 @@ class Po3ClassicClient:
         task.add_done_callback(self._tasks.discard)
 
     async def _write(self, frame: bytes) -> None:
-        if self.connected:
-            try:
-                await self._client.write_gatt_char(CHAR_UUID, frame, response=True)
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.debug("write failed: %s", err)
+        if not self.connected:
+            return
+        try:
+            # char is primarily write-without-response (reliable over ESPHome proxies)
+            await self._client.write_gatt_char(CHAR_UUID, frame, response=False)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("%s: write failed: %s", self._ble_device.address, err)
 
     def _expect(self, *cmds: int) -> asyncio.Future:
         fut = asyncio.get_running_loop().create_future()
