@@ -12,6 +12,6 @@ PO3M_MODEL = "PO3M"
 # Do not reconnect sooner than this after a session ended (seconds)
 SESSION_COOLDOWN = 20
 # Max duration of the live stream for one measurement (seconds)
-MEASURE_TIMEOUT = 120
+MEASURE_TIMEOUT = 600
 
 EVENT_HISTORY_RECORD = f"{DOMAIN}_history_record"
