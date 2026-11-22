@@ -45,7 +45,8 @@ class Po3ClassicClient:
         self._ble_device = ble_device
         self._client: BleakClientWithServiceCache | None = None
         self._session = Po3Session(writer=self._schedule_write, on_message=self._on_message)
-        self._tasks: set[asyncio.Task] = set()
+        self._write_queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self._writer_task: asyncio.Task | None = None
         self._waiters: dict[int, asyncio.Future] = {}
         self._live_cb: Callable[[LiveData], None] | None = None
         self._last_live: LiveData | None = None
@@ -76,6 +77,7 @@ class Po3ClassicClient:
         )
         _LOGGER.debug("%s: connected, enabling notifications", self._ble_device.address)
         await self._client.start_notify(CHAR_UUID, self._on_notify)
+        self._writer_task = asyncio.get_running_loop().create_task(self._writer_loop())
         await asyncio.sleep(0.3)  # let the device settle after CCCD write
         self._auth_event.clear()
         self._auth_ok = False
@@ -90,6 +92,9 @@ class Po3ClassicClient:
         _LOGGER.debug("%s: authenticated (classic PO3)", self._ble_device.address)
 
     async def disconnect(self) -> None:
+        if self._writer_task:
+            self._writer_task.cancel()
+            self._writer_task = None
         client, self._client = self._client, None
         if client and client.is_connected:
             try:
@@ -99,6 +104,9 @@ class Po3ClassicClient:
 
     def _on_disconnect(self, _client) -> None:
         self._disconnected.set()
+        if self._writer_task:
+            self._writer_task.cancel()
+            self._writer_task = None
         self._auth_event.set()
         self._live_event.set()
         for fut in set(self._waiters.values()):
@@ -115,18 +123,20 @@ class Po3ClassicClient:
             _LOGGER.warning("%s: frame dropped: %s", self._ble_device.address, err)
 
     def _schedule_write(self, frame: bytes) -> None:
-        task = asyncio.get_running_loop().create_task(self._write(frame))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        # Queue frames so fragments go out strictly in order (the device ACKs
+        # each one; sending them concurrently loses fragments).
+        self._write_queue.put_nowait(frame)
 
-    async def _write(self, frame: bytes) -> None:
-        if not self.connected:
-            return
-        try:
-            # char is primarily write-without-response (reliable over ESPHome proxies)
-            await self._client.write_gatt_char(CHAR_UUID, frame, response=False)
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.debug("%s: write failed: %s", self._ble_device.address, err)
+    async def _writer_loop(self) -> None:
+        while True:
+            frame = await self._write_queue.get()
+            if not self.connected:
+                continue
+            try:
+                await self._client.write_gatt_char(CHAR_UUID, frame, response=False)
+                await asyncio.sleep(0.04)  # pace fragments (app sleeps ~10 ms)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("%s: write failed: %s", self._ble_device.address, err)
 
     def _expect(self, *cmds: int) -> asyncio.Future:
         fut = asyncio.get_running_loop().create_future()
