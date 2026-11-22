@@ -49,6 +49,11 @@
       "live_pulse_strength": {
         "name": "Live pulse strength"
       }
+    },
+    "switch": {
+      "auto_connect": {
+        "name": "Automatic connection"
+      }
     }
   }
 }

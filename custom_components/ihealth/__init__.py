@@ -6,7 +6,7 @@ from homeassistant.core import HomeAssistant
 
 from .coordinator import IHealthConfigEntry, Po3mCoordinator
 
-PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR, Platform.SWITCH]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: IHealthConfigEntry) -> bool:

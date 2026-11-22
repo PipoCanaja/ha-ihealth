@@ -87,6 +87,8 @@ class Po3mCoordinator(DataUpdateCoordinator[Po3mData]):
         self._session_task: asyncio.Task | None = None
         self._next_session = 0.0
         self._last_adv_time = 0.0
+        self.auto_connect = True
+        self._current_client = None
         self._device_info_done = False
 
     # ------------------------------------------------------------ lifecycle
@@ -151,9 +153,26 @@ class Po3mCoordinator(DataUpdateCoordinator[Po3mData]):
 
     @callback
     def _async_poll_advertisement(self, _now: datetime) -> None:
+        if not self.auto_connect:
+            return
         info = bluetooth.async_last_service_info(self.hass, self.address, connectable=True)
         if info is not None and getattr(info, "time", 0.0) > self._last_adv_time:
             self._async_on_advertisement(info, None)
+
+    @callback
+    def async_set_auto_connect(self, enabled: bool) -> None:
+        """Enable or disable automatic connection (switch entity).
+
+        Disabling cleanly disconnects any live session so the oximeter is freed
+        for the phone app; the measurement loop ends on its own once the link
+        drops.
+        """
+        self.auto_connect = enabled
+        if not enabled and self._current_client is not None:
+            client = self._current_client
+            self.config_entry.async_create_background_task(
+                self.hass, client.disconnect(), f"{DOMAIN}_stop_{self.address}"
+            )
 
     async def _async_update_data(self) -> Po3mData:
         # No polling: data is pushed by the BLE session.
@@ -169,6 +188,8 @@ class Po3mCoordinator(DataUpdateCoordinator[Po3mData]):
         service_info: bluetooth.BluetoothServiceInfoBleak,
         change: bluetooth.BluetoothChange,
     ) -> None:
+        if not self.auto_connect:
+            return
         if self._session_task and not self._session_task.done():
             return
         if monotonic() < self._next_session:
@@ -184,6 +205,7 @@ class Po3mCoordinator(DataUpdateCoordinator[Po3mData]):
 
     async def _async_session(self, ble_device, classic: bool) -> None:
         client = Po3ClassicClient(ble_device) if classic else Po3mClient(ble_device)
+        self._current_client = client
         try:
             await client.connect()
             self._set(connected=True)
@@ -221,10 +243,13 @@ class Po3mCoordinator(DataUpdateCoordinator[Po3mData]):
         except Exception:  # noqa: BLE001
             _LOGGER.exception("%s: unexpected error during the session", self.address)
         finally:
-            await client.disconnect()
+            # reset state first so it is correct even if disconnect is
+            # interrupted (e.g. the session was cancelled by the switch)
             self._next_session = monotonic() + SESSION_COOLDOWN
             self._set(connected=False, measuring=False)
             await self._async_save()
+            await client.disconnect()
+            self._current_client = None
 
     async def _step(self, func):
         """Run a non-critical command; keep going on failure (except disconnect)."""

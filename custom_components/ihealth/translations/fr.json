@@ -49,6 +49,11 @@
       "live_pulse_strength": {
         "name": "Force du pouls en direct"
       }
+    },
+    "switch": {
+      "auto_connect": {
+        "name": "Connexion automatique"
+      }
     }
   }
 }
