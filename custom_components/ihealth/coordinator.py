@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from time import monotonic
 
 from bleak.exc import BleakError
@@ -21,6 +21,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -43,6 +44,7 @@ PROTOCOL_ERRORS = (Po3mError, Po3Error)
 _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
+POLL_INTERVAL = timedelta(seconds=10)
 
 type IHealthConfigEntry = ConfigEntry[Po3mCoordinator]
 
@@ -84,6 +86,7 @@ class Po3mCoordinator(DataUpdateCoordinator[Po3mData]):
         self._last_history: datetime | None = None
         self._session_task: asyncio.Task | None = None
         self._next_session = 0.0
+        self._last_adv_time = 0.0
         self._device_info_done = False
 
     # ------------------------------------------------------------ lifecycle
@@ -122,13 +125,35 @@ class Po3mCoordinator(DataUpdateCoordinator[Po3mData]):
 
     @callback
     def async_start(self) -> CALLBACK_TYPE:
-        """Listen for advertisements; returns the unsubscribe callback."""
-        return bluetooth.async_register_callback(
+        """Listen for advertisements; returns the unsubscribe callback.
+
+        Home Assistant only dispatches an advertisement when its content
+        changes. The PO3 always sends the same one, so after a session it would
+        never wake us up again. A periodic check of the last advertisement seen
+        covers that case.
+        """
+        unsub_adv = bluetooth.async_register_callback(
             self.hass,
             self._async_on_advertisement,
             bluetooth.BluetoothCallbackMatcher(address=self.address, connectable=True),
             bluetooth.BluetoothScanningMode.ACTIVE,
         )
+        unsub_poll = async_track_time_interval(
+            self.hass, self._async_poll_advertisement, POLL_INTERVAL
+        )
+
+        @callback
+        def _unsub() -> None:
+            unsub_adv()
+            unsub_poll()
+
+        return _unsub
+
+    @callback
+    def _async_poll_advertisement(self, _now: datetime) -> None:
+        info = bluetooth.async_last_service_info(self.hass, self.address, connectable=True)
+        if info is not None and getattr(info, "time", 0.0) > self._last_adv_time:
+            self._async_on_advertisement(info, None)
 
     async def _async_update_data(self) -> Po3mData:
         # No polling: data is pushed by the BLE session.
@@ -148,6 +173,8 @@ class Po3mCoordinator(DataUpdateCoordinator[Po3mData]):
             return
         if monotonic() < self._next_session:
             return
+        # remember which advertisement started this session (see async_start)
+        self._last_adv_time = getattr(service_info, "time", monotonic())
         classic = PO3_CLASSIC_SERVICE_UUID in (service_info.service_uuids or ())
         self._session_task = self.config_entry.async_create_background_task(
             self.hass,
