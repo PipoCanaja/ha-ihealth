@@ -25,9 +25,20 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, EVENT_HISTORY_RECORD, MEASURE_TIMEOUT, SESSION_COOLDOWN
+from .const import (
+    DOMAIN,
+    EVENT_HISTORY_RECORD,
+    MEASURE_TIMEOUT,
+    PO3_CLASSIC_SERVICE_UUID,
+    SESSION_COOLDOWN,
+)
+from .po3classic.client import Po3ClassicClient, Po3Disconnected
+from .po3classic.protocol import Po3Error
 from .po3m.client import Po3mClient, Po3mDisconnected
 from .po3m.protocol import HistoryRecord, LiveData, Po3mError
+
+DISCONNECTED = (Po3mDisconnected, Po3Disconnected)
+PROTOCOL_ERRORS = (Po3mError, Po3Error)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -137,25 +148,25 @@ class Po3mCoordinator(DataUpdateCoordinator[Po3mData]):
             return
         if monotonic() < self._next_session:
             return
+        classic = PO3_CLASSIC_SERVICE_UUID in (service_info.service_uuids or ())
         self._session_task = self.config_entry.async_create_background_task(
             self.hass,
-            self._async_session(service_info.device),
+            self._async_session(service_info.device, classic),
             f"{DOMAIN}_session_{self.address}",
         )
 
-    async def _async_session(self, ble_device) -> None:
-        client = Po3mClient(ble_device)
-        client.on_battery_notify = lambda status: _LOGGER.debug(
-            "%s: battery status notification %s", self.address, status
-        )
+    async def _async_session(self, ble_device, classic: bool) -> None:
+        client = Po3ClassicClient(ble_device) if classic else Po3mClient(ble_device)
         try:
             await client.connect()
             self._set(connected=True)
 
-            if (battery := await self._step(client.get_battery)) is not None:
-                self._set(battery=battery["battery"])
+            battery = await self._step(client.get_battery)
+            if battery is not None:
+                # POV12 returns a dict, classic returns an int
+                self._set(battery=battery["battery"] if isinstance(battery, dict) else battery)
             await self._step(client.set_time)
-            if not self._device_info_done:
+            if not classic and not self._device_info_done:
                 if info := await self._step(client.get_device_info):
                     self._update_device_registry(info)
                     self._device_info_done = True
@@ -171,11 +182,12 @@ class Po3mCoordinator(DataUpdateCoordinator[Po3mData]):
                     measured_at=dt_util.utcnow(),
                 )
 
-            if (history := await self._step(client.get_history)) is not None:
-                await self._import_history(history)
-        except Po3mDisconnected:
+            if not classic:
+                if (history := await self._step(client.get_history)) is not None:
+                    await self._import_history(history)
+        except DISCONNECTED:
             _LOGGER.debug("%s: device left during the session", self.address)
-        except (Po3mError, BleakError, TimeoutError) as err:
+        except (*PROTOCOL_ERRORS, BleakError, TimeoutError) as err:
             _LOGGER.debug("%s: session failed: %s", self.address, err)
         except Exception:  # noqa: BLE001
             _LOGGER.exception("%s: unexpected error during the session", self.address)
@@ -189,9 +201,9 @@ class Po3mCoordinator(DataUpdateCoordinator[Po3mData]):
         """Run a non-critical command; keep going on failure (except disconnect)."""
         try:
             return await func()
-        except Po3mDisconnected:
+        except DISCONNECTED:
             raise
-        except Po3mError as err:
+        except PROTOCOL_ERRORS as err:
             _LOGGER.debug("%s: %s failed: %s", self.address, func.__name__, err)
             return None
 

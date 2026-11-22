@@ -12,11 +12,22 @@ from homeassistant.components.bluetooth import (
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_ADDRESS
 
-from .const import DOMAIN, PO3M_LOCAL_NAME, PO3M_MODEL, PO3M_SERVICE_UUID
+from .const import (
+    DOMAIN,
+    PO3_CLASSIC_SERVICE_UUID,
+    PO3M_LOCAL_NAME,
+    PO3M_MODEL,
+    PO3M_SERVICE_UUID,
+)
 
 
 def _is_po3m(info: BluetoothServiceInfoBleak) -> bool:
-    return PO3M_SERVICE_UUID in info.service_uuids or PO3M_LOCAL_NAME in (info.name or "")
+    uuids = info.service_uuids or ()
+    return (
+        PO3M_SERVICE_UUID in uuids
+        or PO3_CLASSIC_SERVICE_UUID in uuids
+        or PO3M_LOCAL_NAME in (info.name or "")
+    )
 
 
 def _title(info: BluetoothServiceInfoBleak) -> str:

@@ -3,9 +3,18 @@
 Intégration Home Assistant (Bluetooth, locale, sans cloud) pour l'oxymètre de pouls
 **iHealth PO3M** (« Air »).
 
-> ⚠️ **Expérimental.** Le protocole a été reconstitué à partir de l'application iHealth
-> (voir [docs/PROTOCOL.md](docs/PROTOCOL.md)). Il est vérifié contre le code Java d'origine
-> et un appareil simulé, mais pas encore contre un vrai PO3M.
+> ⚠️ **Expérimental.** Les protocoles ont été reconstitués à partir de l'application iHealth.
+> Tout est vérifié contre le code Java d'origine et un appareil simulé, mais pas encore
+> contre un vrai appareil.
+
+Deux profils Bluetooth sont pris en charge, choisis automatiquement selon le service annoncé :
+
+- **POV12** (PO3M récents) — voir [docs/PROTOCOL.md](docs/PROTOCOL.md) ;
+- **POV11** (PO3 plus anciens, une seule caractéristique) — voir
+  [docs/PROTOCOL_CLASSIC.md](docs/PROTOCOL_CLASSIC.md).
+
+La clé d'authentification du profil POV11 a été extraite de la bibliothèque native
+`libiHealth.so` (`getKey("PO3")`).
 
 ## Fonctionnement
 
