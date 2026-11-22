@@ -36,6 +36,7 @@ CMD_SET_TIME = 0xA2
 CMD_START_MEASURE = 0xA5
 CMD_MEASURE_ACK = 0xA6   # device -> app readiness; app replies AC A6
 CMD_LIVE = 0xA7          # device -> app live frame; result = last after 1.2 s
+CMD_STATUS = 0xA8        # newer firmware status/keepalive during measurement (no payload seen)
 CMD_MEM_COUNT = 0xA9     # app asks memory; device replies with count
 CMD_MEM_MORE = 0xAA      # app pulls next
 CMD_MEM_HDR = 0xAB       # device -> app, record header chunk
