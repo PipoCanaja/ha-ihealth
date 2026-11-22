@@ -1,0 +1,54 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Choose the pulse oximeter to add.",
+        "data": {
+          "address": "Device"
+        }
+      },
+      "bluetooth_confirm": {
+        "description": "Add {name}?"
+      }
+    },
+    "abort": {
+      "already_configured": "Device is already configured",
+      "no_devices_found": "No iHealth PO3M found. Switch the oximeter on (insert a finger) close to a Bluetooth adapter or proxy, then try again.",
+      "not_supported": "This device is not supported"
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "measuring": {
+        "name": "Measuring"
+      }
+    },
+    "sensor": {
+      "spo2": {
+        "name": "SpO2"
+      },
+      "pulse_rate": {
+        "name": "Pulse rate"
+      },
+      "perfusion_index": {
+        "name": "Perfusion index"
+      },
+      "measured_at": {
+        "name": "Last measurement"
+      },
+      "live_spo2": {
+        "name": "Live SpO2"
+      },
+      "live_pulse_rate": {
+        "name": "Live pulse rate"
+      },
+      "live_perfusion_index": {
+        "name": "Live perfusion index"
+      },
+      "live_pulse_strength": {
+        "name": "Live pulse strength"
+      }
+    }
+  }
+}

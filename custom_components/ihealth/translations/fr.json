@@ -1,0 +1,54 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Choisissez l'oxymètre à ajouter.",
+        "data": {
+          "address": "Appareil"
+        }
+      },
+      "bluetooth_confirm": {
+        "description": "Ajouter {name} ?"
+      }
+    },
+    "abort": {
+      "already_configured": "L'appareil est déjà configuré",
+      "no_devices_found": "Aucun iHealth PO3M trouvé. Allumez l'oxymètre (doigt inséré) à portée d'un adaptateur ou d'un proxy Bluetooth, puis réessayez.",
+      "not_supported": "Cet appareil n'est pas pris en charge"
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "measuring": {
+        "name": "Mesure en cours"
+      }
+    },
+    "sensor": {
+      "spo2": {
+        "name": "SpO2"
+      },
+      "pulse_rate": {
+        "name": "Fréquence cardiaque"
+      },
+      "perfusion_index": {
+        "name": "Indice de perfusion"
+      },
+      "measured_at": {
+        "name": "Dernière mesure"
+      },
+      "live_spo2": {
+        "name": "SpO2 en direct"
+      },
+      "live_pulse_rate": {
+        "name": "Fréquence cardiaque en direct"
+      },
+      "live_perfusion_index": {
+        "name": "Indice de perfusion en direct"
+      },
+      "live_pulse_strength": {
+        "name": "Force du pouls en direct"
+      }
+    }
+  }
+}
