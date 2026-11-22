@@ -214,14 +214,14 @@ fetch_source() {  # $1 = type, $2 = valeur ; remplit TMP_DIR/repo
 }
 
 cmd_install() {
-  local kind=branch value=main
+  local kind="branch" value="main"
   while [ $# -gt 0 ]; do
     case "$1" in
-      --branch) kind=branch; value=${2:?--branch attend un nom}; shift ;;
-      --pr)     kind=pr; value=${2:?--pr attend un numéro}; shift
+      --branch) kind="branch"; value=${2:?--branch attend un nom}; shift ;;
+      --pr)     kind="pr"; value=${2:?--pr attend un numéro}; shift
                 case "$value" in ''|*[!0-9]*) die "--pr attend un numéro" ;; esac ;;
-      --tag)    kind=tag; value=${2:?--tag attend un nom}; shift ;;
-      --ref)    kind=ref; value=${2:?--ref attend un SHA}; shift ;;
+      --tag)    kind="tag"; value=${2:?--tag attend un nom}; shift ;;
+      --ref)    kind="ref"; value=${2:?--ref attend un SHA}; shift ;;
       --restart) RESTART=1 ;;
       --yes|-y) ASSUME_YES=1 ;;
       *) die "option inconnue : $1" ;;
