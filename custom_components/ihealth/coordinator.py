@@ -173,6 +173,11 @@ class Po3mCoordinator(DataUpdateCoordinator[Po3mData]):
             self.config_entry.async_create_background_task(
                 self.hass, client.disconnect(), f"{DOMAIN}_stop_{self.address}"
             )
+        elif enabled:
+            # connect right away if the oximeter is already advertising, instead
+            # of waiting for the next advertisement or the 10 s poll
+            self._next_session = 0.0
+            self._async_poll_advertisement(None)
 
     async def _async_update_data(self) -> Po3mData:
         # No polling: data is pushed by the BLE session.
