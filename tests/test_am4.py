@@ -274,7 +274,10 @@ def test_resent_message_not_stored_twice():
     assert len(sess._current[P.CMD_ACTIVITY_START]) == 6 + 56   # stored once
 
 
-def test_acknowledged_writes_when_supported(monkeypatch):
+def test_writes_without_response_like_the_app(monkeypatch):
+    """Real tracker via ESPHome proxy: acknowledged writes are too slow (the
+    tracker re-sends everything), so write-without-response is used whenever
+    the characteristic offers it, as the app does."""
     clients = []
     orig = FakeBleakClient.__init__
 
@@ -283,10 +286,47 @@ def test_acknowledged_writes_when_supported(monkeypatch):
         clients.append(self)
 
     monkeypatch.setattr(FakeBleakClient, "__init__", init)
-    monkeypatch.setattr(FakeChar, "properties", ["write", "write-without-response", "notify"])
+    monkeypatch.setattr(FakeChar, "properties", ["write-without-response", "write"])  # real AM4
     _, out = _run(monkeypatch, FakeAM4(), history=False)
     assert out["real"] == P.Realtime(4321, 187)
-    assert clients[0].responses == {True}
-    monkeypatch.setattr(FakeChar, "properties", ["write-without-response", "notify"])
+    assert clients[0].responses == {False}
+    monkeypatch.setattr(FakeChar, "properties", ["write", "notify"])
     _run(monkeypatch, FakeAM4(), history=False)
-    assert clients[1].responses == {False}
+    assert clients[1].responses == {True}
+
+
+def test_message_repeated_with_same_seqs_is_ignored():
+    """Captured 23:16:30: the AD fragments 0x40..0x48 come again with the same
+    seqs. BleUnPackageData ACKs them but hands the message over only once."""
+    out, msgs = [], []
+    sess = P.Am4Session(writer=out.append, on_message=lambda c, d: msgs.append(c))
+    sess.blocks[P.CMD_ACTIVITY_START] = []
+    for hexframe in (
+        "a00e003aaaab19081b4c081c000000003b",
+        "a0114440aaad171900002477019e171e0000249e",
+        "a0114342aa77019e172300002477019e172900f9",
+        "a0114244aa002477019e172e00002477019e1700",
+        "a0114146aa3300002477019e1738000024770189",
+        "a0044048aa9ed0",
+        # same fragments again, same seqs
+        "a0114342aa77019e172300002477019e172900f9",
+        "a0114244aa002477019e172e00002477019e1700",
+        "a0114146aa3300002477019e1738000024770189",
+        "a0044048aa9ed0",
+    ):
+        sess.feed(bytes.fromhex(hexframe))
+    assert msgs.count(P.CMD_ACTIVITY_DATA) == 1
+    echoes = [f for f in out if len(f) == 7 and f[5] == P.CMD_ACTIVITY_DATA]
+    assert [f.hex() for f in echoes] == ["b004004baaada2"]        # as logged, once
+    acks = [f for f in out if len(f) == 6]
+    assert len(acks) == 1 + 5 + 4                                  # every frame ACKed
+    assert len(sess._current[P.CMD_ACTIVITY_START]) == 6 + 56
+
+
+def test_single_reply_repeated_with_same_seq_is_ignored():
+    """Captured: FD and B4 replies sent twice with the same seq."""
+    msgs = []
+    sess = P.Am4Session(writer=lambda f: None, on_message=lambda c, d: msgs.append(c))
+    for hexframe in ("a006001aaab401047d", "a006001aaab401047d"):
+        sess.feed(bytes.fromhex(hexframe))
+    assert msgs == [P.CMD_QUERY_STATE]

@@ -118,7 +118,12 @@ auth → `B4` → `A4` → `BF` → *(si l'historique est activé)* `0A` → `AC
   bloqué dans le sens app → bracelet (il acquitte le 1er fragment du `FA` puis plus rien,
   ni réémissions ni nouveaux `FA`, jusqu'à la déconnexion). Réessayer sur le même lien n'a
   jamais marché, une nouvelle connexion oui : l'intégration abandonne en 3 s et se
-  reconnecte 5 s plus tard. Écritures avec réponse quand la caractéristique le permet.
+  reconnecte 5 s plus tard.
+- Écritures **sans réponse**, comme l'app (la caractéristique offre les deux). Essai avec
+  réponse via un proxy ESPHome : chaque écriture attend un aller-retour, les ACK arrivent
+  après le délai de réémission du bracelet (~400 ms) et il renvoie tout en boucle.
+- Le bracelet réémet souvent un message **avec les mêmes numéros** : comme
+  `BleUnPackageData`, il est acquitté mais pas traité une seconde fois.
 - Un transfert interrompu reprend à la connexion suivante : le bracelet renvoie de lui-même
   le dernier message non acquitté (ici un `AD`) juste après l'authentification.
 - `B4` → `01 09` (activité, 100 %) ; `A4` répond `00 01 01 00 31 06` ; `BF` → zéro pas.

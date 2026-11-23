@@ -132,9 +132,11 @@ class Am4Client:
             raise Am4Error("no AM4 service found on the device")
         char = services.get_characteristic(TX_UUID)
         props = list(getattr(char, "properties", None) or ())
-        # Acknowledged writes when possible: through a proxy, a write without
-        # response can be dropped silently (seen on bursts of ACKs)
-        self._write_response = "write" in props or "write-without-response" not in props
+        # Writes without response, like the app (setWriteType(1)). Tried with
+        # response on the real tracker through an ESPHome proxy: each write
+        # waits for a round trip, the ACKs come too late and the tracker
+        # re-sends everything. Lost writes are covered by the re-send timer.
+        self._write_response = "write-without-response" not in props
         _LOGGER.debug("%s: write characteristic %s, with response: %s",
                       self._addr, props, self._write_response)
         self.firmware = await self._read(CHAR_FIRMWARE)
