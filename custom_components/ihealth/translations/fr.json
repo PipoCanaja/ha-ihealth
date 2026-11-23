@@ -14,7 +14,7 @@
     },
     "abort": {
       "already_configured": "L'appareil est déjà configuré",
-      "no_devices_found": "Aucun appareil iHealth trouvé. Allumez l'oxymètre (doigt inséré) ou faites une mesure avec le tensiomètre KN-550BT, à portée d'un adaptateur ou d'un proxy Bluetooth, puis réessayez.",
+      "no_devices_found": "Aucun appareil iHealth trouvé. Allumez l'oxymètre (doigt inséré), faites une mesure avec le tensiomètre KN-550BT ou approchez le bracelet AM4 d'un adaptateur ou d'un proxy Bluetooth, puis réessayez.",
       "not_supported": "Cet appareil n'est pas pris en charge"
     }
   },
@@ -63,11 +63,50 @@
       },
       "stored_readings": {
         "name": "Mesures en mémoire"
+      },
+      "steps": {
+        "name": "Pas"
+      },
+      "calories": {
+        "name": "Calories"
+      },
+      "synced_at": {
+        "name": "Dernière synchronisation"
+      },
+      "mode": {
+        "name": "Mode",
+        "state": {
+          "sleep": "Sommeil",
+          "activity": "Activité",
+          "flight": "Avion",
+          "driving": "Conduite"
+        }
+      },
+      "sleep_minutes": {
+        "name": "Durée de sommeil"
+      },
+      "deep_sleep_minutes": {
+        "name": "Sommeil profond"
+      },
+      "light_sleep_minutes": {
+        "name": "Sommeil léger"
+      },
+      "awake_minutes": {
+        "name": "Éveil pendant le sommeil"
+      },
+      "sleep_start": {
+        "name": "Début du sommeil"
+      },
+      "sleep_end": {
+        "name": "Fin du sommeil"
       }
     },
     "switch": {
       "auto_connect": {
         "name": "Connexion automatique"
+      },
+      "history_sync": {
+        "name": "Télécharger l'historique"
       }
     }
   }

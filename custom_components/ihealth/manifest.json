@@ -17,6 +17,10 @@
     {
       "local_name": "KN-550BT*",
       "connectable": true
+    },
+    {
+      "service_uuid": "636f6d2e-6a69-7561-6e2e-414d56313200",
+      "connectable": true
     }
   ],
   "codeowners": [
@@ -31,5 +35,5 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/PipoCanaja/ha-ihealth/issues",
   "requirements": [],
-  "version": "0.3.0"
+  "version": "0.4.0"
 }

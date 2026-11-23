@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from .const import (
+    AM4_MODEL,
+    AM4_SERVICE_UUID,
+    KIND_AM4,
     KIND_KN550BT,
     KIND_PO3,
     KN550BT_LOCAL_NAME,
@@ -15,7 +18,7 @@ from .const import (
     PO3M_SERVICE_UUID,
 )
 
-MODELS = {KIND_PO3: PO3M_MODEL, KIND_KN550BT: KN550BT_MODEL}
+MODELS = {KIND_PO3: PO3M_MODEL, KIND_KN550BT: KN550BT_MODEL, KIND_AM4: AM4_MODEL}
 
 
 def device_kind(info) -> str | None:
@@ -32,4 +35,6 @@ def device_kind(info) -> str | None:
         return KIND_KN550BT
     if uuids & {KN550BT_SERVICE_AV10, KN550BT_SERVICE_DEV} and "550" in name:
         return KIND_KN550BT
+    if AM4_SERVICE_UUID in uuids:
+        return KIND_AM4
     return None

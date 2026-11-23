@@ -32,3 +32,14 @@ EVENT_BP_RECORD = f"{DOMAIN}_bp_record"
 CONF_KIND = "kind"
 KIND_PO3 = "po3"
 KIND_KN550BT = "kn550bt"
+KIND_AM4 = "am4"
+
+# AM4 activity tracker
+AM4_MODEL = "AM4"
+AM4_SERVICE_UUID = "636f6d2e-6a69-7561-6e2e-414d56313200"  # com.jiuan.AMV12
+# Read the tracker at most this often while it is in range (seconds)
+AM4_SESSION_INTERVAL = 15 * 60
+
+EVENT_AM4_ACTIVITY = f"{DOMAIN}_am4_activity"
+EVENT_AM4_SLEEP = f"{DOMAIN}_am4_sleep"
+EVENT_AM4_STAGE = f"{DOMAIN}_am4_stage"

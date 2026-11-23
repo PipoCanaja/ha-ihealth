@@ -14,7 +14,7 @@
     },
     "abort": {
       "already_configured": "Device is already configured",
-      "no_devices_found": "No iHealth device found. Switch the oximeter on (insert a finger) or take a reading with the KN-550BT monitor, close to a Bluetooth adapter or proxy, then try again.",
+      "no_devices_found": "No iHealth device found. Switch the oximeter on (insert a finger), take a reading with the KN-550BT monitor or bring the AM4 tracker close to a Bluetooth adapter or proxy, then try again.",
       "not_supported": "This device is not supported"
     }
   },
@@ -63,11 +63,50 @@
       },
       "stored_readings": {
         "name": "Stored readings"
+      },
+      "steps": {
+        "name": "Steps"
+      },
+      "calories": {
+        "name": "Calories"
+      },
+      "synced_at": {
+        "name": "Last sync"
+      },
+      "mode": {
+        "name": "Mode",
+        "state": {
+          "sleep": "Sleep",
+          "activity": "Activity",
+          "flight": "Flight",
+          "driving": "Driving"
+        }
+      },
+      "sleep_minutes": {
+        "name": "Sleep duration"
+      },
+      "deep_sleep_minutes": {
+        "name": "Deep sleep"
+      },
+      "light_sleep_minutes": {
+        "name": "Light sleep"
+      },
+      "awake_minutes": {
+        "name": "Awake during sleep"
+      },
+      "sleep_start": {
+        "name": "Sleep start"
+      },
+      "sleep_end": {
+        "name": "Sleep end"
       }
     },
     "switch": {
       "auto_connect": {
         "name": "Automatic connection"
+      },
+      "history_sync": {
+        "name": "Download history"
       }
     }
   }

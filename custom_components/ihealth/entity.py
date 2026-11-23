@@ -5,17 +5,18 @@ from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceIn
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .am4_coordinator import Am4Coordinator
 from .bp_coordinator import Kn550Coordinator
 from .const import MANUFACTURER
 from .coordinator import Po3mCoordinator
 
 
-class IHealthEntity(CoordinatorEntity[Po3mCoordinator | Kn550Coordinator]):
+class IHealthEntity(CoordinatorEntity[Po3mCoordinator | Kn550Coordinator | Am4Coordinator]):
     """Entity tied to one device. Always available: the device sleeps most of the time."""
 
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator: Po3mCoordinator | Kn550Coordinator, description: EntityDescription) -> None:
+    def __init__(self, coordinator: Po3mCoordinator | Kn550Coordinator | Am4Coordinator, description: EntityDescription) -> None:
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = f"{coordinator.address}_{description.key}"

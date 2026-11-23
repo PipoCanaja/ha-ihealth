@@ -4,7 +4,9 @@ Intégration Home Assistant (Bluetooth, locale, sans cloud) pour :
 
 - l'oxymètre de pouls **iHealth PO3 / PO3M** (« Air ») ;
 - le tensiomètre **iHealth KN-550BT** — voir [plus bas](#tensiomètre-kn-550bt) et
-  [docs/PROTOCOL_KN550BT.md](docs/PROTOCOL_KN550BT.md).
+  [docs/PROTOCOL_KN550BT.md](docs/PROTOCOL_KN550BT.md) ;
+- le bracelet d'activité **iHealth AM4** — voir [plus bas](#bracelet-dactivité-am4) et
+  [docs/PROTOCOL_AM4.md](docs/PROTOCOL_AM4.md).
 
 > ⚠️ **Expérimental.** Les protocoles ont été reconstitués à partir de l'application iHealth.
 > Tout est vérifié contre le code Java d'origine et un appareil simulé, mais pas encore
@@ -102,6 +104,49 @@ data:
   time_fixed: false
 ```
 
+## Bracelet d'activité AM4
+
+L'AM4 émet en Bluetooth en permanence. Tant qu'il est à portée, l'intégration s'y connecte
+**au plus toutes les 15 minutes** : authentification, mode et batterie, mise à l'heure,
+**pas et calories du jour**, puis déconnexion.
+
+L'interrupteur **« Télécharger l'historique »** (coupé par défaut) ajoute à chaque session
+le téléchargement des rapports d'étapes (entraînements, natation, résumés de sommeil), des
+points d'activité (toutes les 5 min) et du sommeil détaillé. ⚠️ Le bracelet ne garde
+probablement pas ce qu'il a déjà envoyé : si vous utilisez encore l'application iHealth,
+laissez-le coupé, sinon elle ne recevra plus ces données.
+
+L'intégration n'envoie jamais de commande qui modifie le bracelet (réinitialisation,
+identifiant de compte, profil, alarmes…) : il reste associé à votre compte iHealth.
+
+| Entité | Description |
+|---|---|
+| Pas, Calories | totaux du jour (remis à zéro par le bracelet à minuit) |
+| Dernière synchronisation | horodatage de la dernière lecture réussie (diagnostic) |
+| Batterie, Mode (activité / sommeil / avion / conduite) | diagnostic |
+| Durée de sommeil, Sommeil profond, Sommeil léger, Éveil pendant le sommeil | dernière nuit — **historique uniquement** |
+| Début / Fin du sommeil | dernière nuit — **historique uniquement** |
+| Connecté | session Bluetooth ouverte (diagnostic) |
+| Connexion automatique | coupé = bracelet laissé libre pour l'application |
+| Télécharger l'historique | voir ci-dessus |
+
+Avec l'historique, trois évènements sont émis (seulement pour les données nouvelles) :
+
+```yaml
+event_type: ihealth_am4_activity      # un par jour ; pas/calories cumulés du jour
+data: {address: …, date: "2026-11-23", steps: 5230, calories: 214, step_length: 70,
+       points: [{time: "2026-11-23T07:05:00+01:00", steps: 120, calories: 6}, …]}
+
+event_type: ihealth_am4_sleep         # une nuit ; un niveau toutes les 5 min
+data: {address: …, start: …, end: …, awake_minutes: 20, light_minutes: 190,
+       deep_minutes: 150, levels: [0, 1, 2, …]}   # 0 éveil, 1 léger, 2 profond
+
+event_type: ihealth_am4_stage         # rapport calculé par le bracelet
+data: {address: …, type: workout, start: …, end: …, duration_minutes: 30,
+       steps: 4200, distance: 3.2, calories: 210}
+# type: workout | swim | sleep (efficiency, is_50min) | summary (résumé du jour)
+```
+
 ## Installation
 
 ### Avec le script `ha-ihealth-update.sh` (recommandé pour tester branches et PR)
@@ -141,9 +186,9 @@ Ajoutez `https://github.com/PipoCanaja/ha-ihealth` comme dépôt personnalisé (
 
 ## Configuration
 
-Allumez l'oxymètre, ou faites une mesure avec le tensiomètre : l'appareil est découvert
-automatiquement (*Paramètres > Appareils et services*). Sinon, *Ajouter une intégration >
-iHealth* pendant qu'il émet.
+Allumez l'oxymètre, faites une mesure avec le tensiomètre ou approchez le bracelet AM4 :
+l'appareil est découvert automatiquement (*Paramètres > Appareils et services*). Sinon,
+*Ajouter une intégration > iHealth* pendant qu'il émet.
 
 ## Débogage
 
