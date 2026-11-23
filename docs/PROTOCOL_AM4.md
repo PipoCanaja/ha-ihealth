@@ -33,6 +33,13 @@ milieu d'un transfert fragmenté il ignore un écho mal numéroté** et renvoie 
 boucle (capture : dernier fragment `AD` en `22`, écho attendu en `25`, écho envoyé en `19`
 ignoré). Le transport suit donc ce calcul pour l'AM4 (`follow_seq`).
 
+**Réémission (vérifié).** Des écritures se perdent (rafales de 2 ACK + écho en moins de
+1 ms via un proxy ESPHome) : le bracelet réémet alors ses derniers fragments, puis le
+message entier avec de nouveaux numéros. Comme `BleCommProtocol` (minuteur : 1 s, puis
+toutes les 0,5 s, 3 fois au plus), l'intégration garde chaque trame de commande jusqu'à
+l'ACK du bracelet (`A0 03 xx seq+1 AA`) et la renvoie sinon ; 10 ms entre deux écritures.
+Un message réémis après un écho perdu est renvoyé en écho mais pas stocké deux fois.
+
 Authentification `IdentifyIns` (`FA` → `FB` 48 o → `FC` 16 o → `FD`/`FE`) avec
 `getKey("AM4")` = `1967a5449c30c3bd20dec808f8ea4d34`, `Ka` dérivée =
 `995a085c06eaa5dcf2f4da075df4804b` (voir `device_keys.md`).

@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import struct
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -187,11 +188,22 @@ class _Transport:
     acknowledged, seq + 1 for a 0xF0 frame). The AM4 drops a reply sent with
     another number in the middle of a bulk transfer. Off by default, the PO3 /
     KN-550BT work with an independent counter.
+
+    ``retransmit``: keep every command frame until the device acknowledges it
+    and send it again (BleCommProtocol timer: after 1 s, then every 0.5 s, at
+    most 3 times) - see resend_due(). Off by default.
     """
 
-    def __init__(self, family: int = AC, follow_seq: bool = False) -> None:
+    RESEND_FIRST = 1.0
+    RESEND_EVERY = 0.5
+    RESEND_MAX = 3
+
+    def __init__(self, family: int = AC, follow_seq: bool = False, retransmit: bool = False) -> None:
+        """See the class docstring."""
         self.family = family
         self.follow_seq = follow_seq
+        self.retransmit = retransmit
+        self.pending: dict[int, list] = {}   # our seq -> [frame, last sent, resends]
         self.seq = 1
         self._rx = bytearray()
         self._frag: dict[int, bytes] = {}   # idx -> data
@@ -218,7 +230,7 @@ class _Transport:
             f[5:5 + len(rest)] = rest
             f[n + 4] = self._checksum(f, n + 4)
             self.seq = (self.seq + 2) & 0xFF
-            self.out.append(bytes(f))
+            self._out_cmd(bytes(f))
             return
         # multi-fragment (BleCommProtocol.d): sizes 14.. + remainder, AC repeated
         size = len(rest)
@@ -237,7 +249,31 @@ class _Transport:
             pos += seg
             f[seg + 5] = self._checksum(f, seg + 5)
             self.seq = (self.seq + 2) & 0xFF
-            self.out.append(bytes(f))
+            self._out_cmd(bytes(f))
+
+    def _out_cmd(self, frame: bytes) -> None:
+        self.out.append(frame)
+        if self.retransmit:
+            self.pending[frame[3]] = [frame, time.monotonic(), 0]
+
+    def resend_due(self, now: float | None = None) -> list[bytes]:
+        """Queue again the command frames still unacknowledged; return the
+        frames given up on."""
+        now = time.monotonic() if now is None else now
+        dropped = []
+        for seq, entry in list(self.pending.items()):
+            frame, sent, tries = entry
+            wait = self.RESEND_FIRST if tries == 0 else self.RESEND_EVERY
+            if now - sent < wait:
+                continue
+            if tries >= self.RESEND_MAX:
+                del self.pending[seq]
+                dropped.append(frame)
+                continue
+            entry[1], entry[2] = now, tries + 1
+            _LOGGER.debug("resend %s (%d)", frame.hex(), tries + 1)
+            self.out.append(frame)
+        return dropped
 
     def _send_ack(self, low: int, seq_val: int) -> None:
         b, b2, e = low & 0xFF, seq_val & 0xFF, self.family
@@ -265,7 +301,8 @@ class _Transport:
     def _handle_frame(self, f: bytes):
         if (sum(f[2:-1]) & 0xFF) != f[-1]:
             raise Po3Error(f"checksum error: {f.hex()}")
-        if len(f) == 6:          # pure ACK from device
+        if len(f) == 6:          # pure ACK from device: seq = acknowledged seq + 1
+            self.pending.pop((f[3] - 1) & 0xFF, None)
             return None
         field2 = f[2] & 0xFF
         seq = f[3] & 0xFF

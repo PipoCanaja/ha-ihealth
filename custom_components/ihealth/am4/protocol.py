@@ -270,12 +270,15 @@ class Am4Session:
     def __init__(self, writer=None, on_message=None) -> None:
         self.writer = writer
         self.on_message = on_message
-        self.t = _Transport(family=AA, follow_seq=True)
+        self.t = _Transport(family=AA, follow_seq=True, retransmit=True)
         self.authenticated = False
         self.r1 = b""
         # bulk transfers: start cmd -> finished blocks; current block per start
         self.blocks: dict[int, list[bytes]] = {k: [] for k in _BULK}
         self._current: dict[int, bytearray | None] = {k: None for k in _BULK}
+        # last bulk message and the seq of our echo, to spot a re-sent message
+        self._last_bulk: tuple[int, bytes] | None = None
+        self._last_echo_seq: int | None = None
 
     def _flush(self) -> None:
         for frame in self.t.out:
@@ -290,6 +293,35 @@ class Am4Session:
 
     def _cmd(self, cmd: int) -> None:
         self._send(bytes([AA, cmd]))
+
+    def retransmit(self) -> int:
+        """Send again unacknowledged frames (call every ~0.25 s); returns how
+        many were given up on."""
+        dropped = self.t.resend_due()
+        for frame in dropped:
+            _LOGGER.debug("no ACK for %s, given up", frame.hex())
+        self._flush()
+        return len(dropped)
+
+    def _echo_bulk(self, cmd: int, data: bytes) -> bool:
+        """Echo a bulk message; False if it is a re-send of the previous one.
+
+        When our echo is lost the tracker sends the whole message again (new
+        sequence numbers). It must be echoed again but not stored twice.
+        """
+        key = (cmd, bytes(data))
+        repeat = (
+            key == self._last_bulk
+            and self._last_echo_seq is not None
+            and self._last_echo_seq in self.t.pending
+        )
+        if repeat:
+            self.t.pending.pop(self._last_echo_seq, None)
+            _LOGGER.debug("0x%02X sent again by the tracker: not stored twice", cmd)
+        self._last_bulk = key
+        self._last_echo_seq = self.t.seq
+        self._cmd(cmd)
+        return not repeat
 
     # ---- auth ----
     def start_auth(self) -> None:
@@ -355,20 +387,22 @@ class Am4Session:
         elif cmd == CMD_AUTH_FAIL:
             self.authenticated = False
         elif cmd in _BULK:
-            self._cmd(cmd)  # echo, the tracker waits for it
+            if not self._echo_bulk(cmd, data):  # echo, the tracker waits for it
+                return
             self._end_block(cmd)
             if cmd == CMD_STAGE_START:
                 self._current[cmd] = bytearray()         # start payload unused
             else:
                 self._current[cmd] = bytearray(data[:-4])  # rejectBuffer()
         elif cmd in BULK_DATA:
-            self._cmd(cmd)
+            if not self._echo_bulk(cmd, data):
+                return
             start = BULK_DATA[cmd]
             if self._current[start] is None:
                 self._current[start] = bytearray()
             self._current[start] += data
         elif cmd in BULK_FINISH:
-            self._cmd(cmd)
+            self._echo_bulk(cmd, data)
             self._end_block(BULK_FINISH[cmd])
         if self.on_message:
             self.on_message(cmd, data)

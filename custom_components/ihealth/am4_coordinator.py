@@ -293,7 +293,9 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
 
     def _import_activity(self, points: list[ActivityPoint]) -> None:
         last = datetime.fromisoformat(self._activity_last) if self._activity_last else None
-        new = sorted((p for p in points if last is None or p.time > last), key=lambda p: p.time)
+        unique = {p.time: p for p in points}   # a re-sent message must not count twice
+        new = sorted((p for p in unique.values() if last is None or p.time > last),
+                     key=lambda p: p.time)
         if not new:
             return
         by_day: dict = {}

@@ -38,7 +38,7 @@ def sleep_stage_record(y, mo, d, hh, mi, minutes, eff10, is50):
 
 class FakeAM4:
     def __init__(self, battery_level=7, mode=1, steps=4321, calories=187,
-                 activity=(), sleep=(), stage=b"", user_id=123456, chunk=40, ignore_fa=0):
+                 activity=(), sleep=(), stage=b"", user_id=123456, chunk=40, ignore_fa=0, lose_echoes=()):
         self.battery_level = battery_level
         self.mode = mode
         self.steps = steps
@@ -49,6 +49,10 @@ class FakeAM4:
         self.user_id = user_id
         self.chunk = chunk               # bytes per data message
         self.ignore_fa = ignore_fa       # FA requests ignored after connecting
+        self.lose_echoes = set(lose_echoes)  # indexes of echo frames lost on the air
+        self._echo_count = 0
+        self._seen_seqs: list[int] = []
+        self.duplicates = 0
         self.device_id = os.urandom(16)
         self.seed = os.urandom(16)
         self.seq = 2
@@ -99,6 +103,18 @@ class FakeAM4:
         if len(frame) == 6:
             self.acks += 1
             return
+        is_echo = self._waiting is not None and len(frame) == 7 and frame[5] == self._waiting
+        if is_echo:
+            idx, self._echo_count = self._echo_count, self._echo_count + 1
+            if idx in self.lose_echoes:
+                return                       # lost: no ACK, the app must send it again
+        # transport ACK of every command frame: seq + 1
+        ack = bytes([P.RX_HEAD, 3, 0xA0 + (frame[2] & 0x0F), (frame[3] + 1) & 0xFF, P.AA])
+        self.out.append(ack + bytes([sum(ack[2:]) & 0xFF]))
+        if frame[3] in self._seen_seqs:      # a re-send we already got
+            self.duplicates += 1
+            return
+        self._seen_seqs = (self._seen_seqs + [frame[3]])[-8:]
         # like the real tracker: the reply numbering follows ours (seq + 3)
         self.seq = (frame[3] + 3) & 0xFF
         if self._waiting is not None and frame[3] != (self._last_tx_seq + 3) & 0xFF:

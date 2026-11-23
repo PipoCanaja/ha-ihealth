@@ -228,3 +228,41 @@ def test_client_retries_unanswered_auth(monkeypatch):
     c, out = _run(monkeypatch, dev, history=False)
     assert dev.authenticated and out["real"] == P.Realtime(4321, 187)
     assert dev.received.count(P.CMD_AUTH_FA) == 2
+
+
+def test_lost_echo_is_sent_again(monkeypatch):
+    """Real capture: some writes are lost; the app must resend unacknowledged
+    frames (BleCommProtocol timer) and never store a re-sent message twice."""
+    blk = activity_block(26, 11, 23, 70, [(h, m, h * 60 + m, h) for h in range(6) for m in (0, 20, 40)])
+    dev = FakeAM4(activity=[blk], chunk=40, lose_echoes={1, 3})
+    monkeypatch.setattr(P._Transport, "RESEND_FIRST", 0.05)
+    monkeypatch.setattr(P._Transport, "RESEND_EVERY", 0.05)
+    c, out = _run(monkeypatch, dev)
+    assert dev.dropped == 0
+    assert len(out["activity"]) == 18                  # nothing lost, nothing doubled
+    assert [p.steps for p in out["activity"]] == sorted(p.steps for p in out["activity"])
+
+
+def test_resent_message_not_stored_twice():
+    """The tracker re-sends a whole message (new seqs) when our echo is lost."""
+    out = []
+    sess = P.Am4Session(writer=out.append)
+    sess.blocks[P.CMD_ACTIVITY_START] = []
+    for hexframe in (
+        "a00e0018aaab19081b4c08060000000003",
+        "a011441aaaad171900002477019e171e00002478",
+        "a011431caa77019e172300002477019e172900d3",
+        "a011421eaa002477019e172e00002477019e17da",
+        "a0114120aa3300002477019e1738000024770163",
+        "a0044022aa9eaa",
+        # echo lost -> same AD again, seqs 0x24.. (captured)
+        "a0114424aaad171900002477019e171e00002482",
+        "a0114326aa77019e172300002477019e172900dd",
+        "a0114228aa002477019e172e00002477019e17e4",
+        "a011412aaa3300002477019e173800002477016d",
+        "a004402caa9eb4",
+    ):
+        sess.feed(bytes.fromhex(hexframe))
+    echoes = [f for f in out if len(f) == 7 and f[5] == P.CMD_ACTIVITY_DATA]
+    assert [f[3] for f in echoes] == [0x25, 0x2F]      # echoed both times
+    assert len(sess._current[P.CMD_ACTIVITY_START]) == 6 + 56   # stored once

@@ -52,14 +52,17 @@ from .protocol import (
 
 _LOGGER = logging.getLogger(__name__)
 
-AUTH_TIMEOUT = 2.0   # per attempt
+AUTH_TIMEOUT = 3.0   # per attempt (frames are re-sent from 1 s)
 AUTH_ATTEMPTS = 3    # the tracker sometimes ignores the first FA after connecting
 SETTLE_DELAY = 0.5
 CMD_TIMEOUT = 4.0
 # A bulk transfer may take long; give up only after this long without any
 # message of that transfer
 BULK_IDLE_TIMEOUT = 6.0
-BULK_MAX_DURATION = 180.0
+BULK_MAX_DURATION = 600.0
+# BleCommProtocol.SendTimerTask: 10 ms between writes (bursts get lost)
+WRITE_GAP = 0.01
+RETRANSMIT_PERIOD = 0.25
 
 
 class Am4Disconnected(Am4Error):
@@ -81,6 +84,7 @@ class Am4Client:
         self._write_response = False
         self._write_queue: asyncio.Queue[bytes] = asyncio.Queue()
         self._writer_task: asyncio.Task | None = None
+        self._retransmit_task: asyncio.Task | None = None
         self._waiters: dict[int, asyncio.Future] = {}
         self._progress: asyncio.Event | None = None
         self._auth_event = asyncio.Event()
@@ -126,7 +130,9 @@ class Am4Client:
         _LOGGER.debug("%s: firmware %s", self._addr, self.firmware)
         self._session = Am4Session(writer=self._schedule_write, on_message=self._on_message)
         await self._client.start_notify(RX_UUID, self._on_notify)
-        self._writer_task = asyncio.get_running_loop().create_task(self._writer_loop())
+        loop = asyncio.get_running_loop()
+        self._writer_task = loop.create_task(self._writer_loop())
+        self._retransmit_task = loop.create_task(self._retransmit_loop())
         await asyncio.sleep(SETTLE_DELAY)  # let the device settle after the CCCD write
         self._auth_event.clear()
         self._auth_ok = False
@@ -156,10 +162,14 @@ class Am4Client:
             _LOGGER.debug("%s: cannot read %s: %s", self._addr, uuid, err)
             return None
 
+    def _stop_tasks(self) -> None:
+        for task in (self._writer_task, self._retransmit_task):
+            if task:
+                task.cancel()
+        self._writer_task = self._retransmit_task = None
+
     async def disconnect(self) -> None:
-        if self._writer_task:
-            self._writer_task.cancel()
-            self._writer_task = None
+        self._stop_tasks()
         client, self._client = self._client, None
         if client and client.is_connected:
             try:
@@ -169,9 +179,7 @@ class Am4Client:
 
     def _on_disconnect(self, _client) -> None:
         self._disconnected.set()
-        if self._writer_task:
-            self._writer_task.cancel()
-            self._writer_task = None
+        self._stop_tasks()
         self._auth_event.set()
         if self._progress:
             self._progress.set()
@@ -201,6 +209,14 @@ class Am4Client:
                 await self._client.write_gatt_char(TX_UUID, frame, response=self._write_response)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug("%s: write failed: %s", self._addr, err)
+            if not self._write_response and not self._write_queue.empty():
+                await asyncio.sleep(WRITE_GAP)
+
+    async def _retransmit_loop(self) -> None:
+        while True:
+            await asyncio.sleep(RETRANSMIT_PERIOD)
+            if self.connected and self._session:
+                self._session.retransmit()
 
     def _on_message(self, cmd: int, data: bytes) -> None:
         if cmd == CMD_AUTH_OK:
