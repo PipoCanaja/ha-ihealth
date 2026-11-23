@@ -116,6 +116,11 @@ points d'activité (toutes les 5 min) et du sommeil détaillé. ⚠️ Le bracel
 probablement pas ce qu'il a déjà envoyé : si vous utilisez encore l'application iHealth,
 laissez-le coupé, sinon elle ne recevra plus ces données.
 
+Si le bracelet n'apparaît plus du tout (plus aucune session, la ligne de diagnostic
+`idle - … no connectable advertisement` dans les logs), redémarrez-le : posez-le sur son
+chargeur USB et maintenez le bouton du chargeur ~10 s jusqu'à « Restart Complete ». Ce
+redémarrage n'efface ni les réglages ni les données non synchronisées.
+
 L'intégration n'envoie jamais de commande qui modifie le bracelet (réinitialisation,
 identifiant de compte, profil, alarmes…) : il reste associé à votre compte iHealth.
 

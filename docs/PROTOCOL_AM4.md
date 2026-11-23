@@ -132,6 +132,10 @@ auth → `B4` → `A4` → `BF` → *(si l'historique est activé)* `0A` → `AC
   fragments de 7 points (23:25 → 23:56, 9335 pas cumulés, 414 kcal) : le bracelet garde
   donc des jours anciens non synchronisés.
 
+- Après plusieurs transferts interrompus, le bracelet peut **cesser d'émettre** (plus aucune
+  annonce, rien dans HA). Un redémarrage le débloque sans rien effacer : le poser sur son
+  chargeur USB et maintenir le bouton du chargeur ~10 s jusqu'à « Restart Complete ».
+
 ## Inconnues à vérifier sur le vrai bracelet
 
 - Le bracelet efface-t-il ce qu'il a transmis après l'écho de *fin* ? Probable (mémoire
