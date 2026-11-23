@@ -114,8 +114,13 @@ auth → `B4` → `A4` → `BF` → *(si l'historique est activé)* `0A` → `AC
 
 ## Constats sur le vrai bracelet (fw « 137 », lu tel quel sur `2A26`, sans points)
 
-- Authentification OK avec la clé AM4. Juste après la connexion, le bracelet ignore parfois
-  le premier `FA` (aucune réponse) : l'intégration le renvoie jusqu'à 3 fois.
+- Authentification OK avec la clé AM4. Juste après la connexion, le lien reste parfois
+  bloqué dans le sens app → bracelet (il acquitte le 1er fragment du `FA` puis plus rien,
+  ni réémissions ni nouveaux `FA`, jusqu'à la déconnexion). Réessayer sur le même lien n'a
+  jamais marché, une nouvelle connexion oui : l'intégration abandonne en 3 s et se
+  reconnecte 5 s plus tard. Écritures avec réponse quand la caractéristique le permet.
+- Un transfert interrompu reprend à la connexion suivante : le bracelet renvoie de lui-même
+  le dernier message non acquitté (ici un `AD`) juste après l'authentification.
 - `B4` → `01 09` (activité, 100 %) ; `A4` répond `00 01 01 00 31 06` ; `BF` → zéro pas.
 - `0A` : `0B 00 00` puis `0D` directement quand il n'y a pas de rapport.
 - `AC` : `AB` = `19 08 1b 4c 08 06` + 4 octets (27/08/2025, pas de 76 cm), puis `AD` en 5

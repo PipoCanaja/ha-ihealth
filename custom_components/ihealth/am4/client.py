@@ -53,7 +53,10 @@ from .protocol import (
 _LOGGER = logging.getLogger(__name__)
 
 AUTH_TIMEOUT = 3.0   # per attempt (frames are re-sent from 1 s)
-AUTH_ATTEMPTS = 3    # the tracker sometimes ignores the first FA after connecting
+# Seen on the real tracker: right after connecting, our writes sometimes stop
+# reaching it (it ACKs the first fragment, then nothing). Retrying on the same
+# link never worked, a new connection does: give up quickly instead.
+AUTH_ATTEMPTS = 1
 SETTLE_DELAY = 0.5
 CMD_TIMEOUT = 4.0
 # A bulk transfer may take long; give up only after this long without any
@@ -67,6 +70,10 @@ RETRANSMIT_PERIOD = 0.25
 
 class Am4Disconnected(Am4Error):
     pass
+
+
+class Am4AuthTimeout(Am4Error):
+    """No answer to the authentication: worth reconnecting soon."""
 
 
 def _clean(raw: bytes | bytearray | None) -> str | None:
@@ -124,8 +131,12 @@ class Am4Client:
         if services.get_service(SERVICE_UUID) is None:
             raise Am4Error("no AM4 service found on the device")
         char = services.get_characteristic(TX_UUID)
-        props = getattr(char, "properties", None) or ()
-        self._write_response = "write-without-response" not in props
+        props = list(getattr(char, "properties", None) or ())
+        # Acknowledged writes when possible: through a proxy, a write without
+        # response can be dropped silently (seen on bursts of ACKs)
+        self._write_response = "write" in props or "write-without-response" not in props
+        _LOGGER.debug("%s: write characteristic %s, with response: %s",
+                      self._addr, props, self._write_response)
         self.firmware = await self._read(CHAR_FIRMWARE)
         _LOGGER.debug("%s: firmware %s", self._addr, self.firmware)
         self._session = Am4Session(writer=self._schedule_write, on_message=self._on_message)
@@ -143,7 +154,7 @@ class Am4Client:
                 break
             except TimeoutError:
                 if attempt == AUTH_ATTEMPTS:
-                    raise Am4Error(
+                    raise Am4AuthTimeout(
                         f"no answer to authentication ({AUTH_ATTEMPTS} attempts)"
                     ) from None
                 _LOGGER.debug("%s: no answer to authentication, retrying", self._addr)

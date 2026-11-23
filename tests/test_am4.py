@@ -91,7 +91,7 @@ def test_session_auth_and_bulk_echo():
 
 # ---------------------------------------------------------------- async client
 class FakeChar:
-    properties = ["write-without-response", "notify"]
+    properties = ["write-without-response", "notify"]   # as on the real AM4? (logged)
 
 
 class FakeServices:
@@ -111,6 +111,7 @@ class FakeBleakClient:
         self.is_connected = True
         self.cb = None
         self.services = FakeServices()
+        self.responses = set()
 
     async def read_gatt_char(self, uuid):
         assert uuid == P.CHAR_FIRMWARE
@@ -121,7 +122,8 @@ class FakeBleakClient:
         self.cb = cb
 
     async def write_gatt_char(self, uuid, data, response):
-        assert uuid == P.TX_UUID and response is False
+        assert uuid == P.TX_UUID
+        self.responses.add(response)
         self.dev.write(bytes(data))
         loop = asyncio.get_running_loop()
         for i, chunk in enumerate(self.dev.out):
@@ -223,11 +225,15 @@ def test_echo_sequence_follows_device_real_capture():
     assert len(pts) == 7
 
 
-def test_client_retries_unanswered_auth(monkeypatch):
-    dev = FakeAM4(ignore_fa=1)    # seen on the real tracker right after connecting
-    c, out = _run(monkeypatch, dev, history=False)
-    assert dev.authenticated and out["real"] == P.Realtime(4321, 187)
-    assert dev.received.count(P.CMD_AUTH_FA) == 2
+def test_client_gives_up_quickly_on_unanswered_auth(monkeypatch):
+    """Real tracker: once the link is stuck, retries on it never work; the
+    client must fail fast (Am4AuthTimeout) so the coordinator reconnects."""
+    import pytest
+
+    dev = FakeAM4(ignore_fa=10)
+    with pytest.raises(client_mod.Am4AuthTimeout):
+        _run(monkeypatch, dev, history=False)
+    assert dev.received.count(P.CMD_AUTH_FA) == 1      # resends are de-duplicated
 
 
 def test_lost_echo_is_sent_again(monkeypatch):
@@ -266,3 +272,21 @@ def test_resent_message_not_stored_twice():
     echoes = [f for f in out if len(f) == 7 and f[5] == P.CMD_ACTIVITY_DATA]
     assert [f[3] for f in echoes] == [0x25, 0x2F]      # echoed both times
     assert len(sess._current[P.CMD_ACTIVITY_START]) == 6 + 56   # stored once
+
+
+def test_acknowledged_writes_when_supported(monkeypatch):
+    clients = []
+    orig = FakeBleakClient.__init__
+
+    def init(self, *a, **k):
+        orig(self, *a, **k)
+        clients.append(self)
+
+    monkeypatch.setattr(FakeBleakClient, "__init__", init)
+    monkeypatch.setattr(FakeChar, "properties", ["write", "write-without-response", "notify"])
+    _, out = _run(monkeypatch, FakeAM4(), history=False)
+    assert out["real"] == P.Realtime(4321, 187)
+    assert clients[0].responses == {True}
+    monkeypatch.setattr(FakeChar, "properties", ["write-without-response", "notify"])
+    _run(monkeypatch, FakeAM4(), history=False)
+    assert clients[1].responses == {False}

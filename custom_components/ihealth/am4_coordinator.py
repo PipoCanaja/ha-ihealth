@@ -29,7 +29,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
-from .am4.client import Am4Client, Am4Disconnected
+from .am4.client import Am4AuthTimeout, Am4Client, Am4Disconnected
 from .am4.protocol import ActivityPoint, Am4Error, SleepSession, StageRecord
 from .const import (
     AM4_MODEL,
@@ -46,6 +46,7 @@ _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
 POLL_INTERVAL = timedelta(seconds=10)
+AUTH_RETRY_DELAY = 5  # s: a stuck link usually works again on a new connection
 MAX_SEEN = 400
 
 
@@ -210,6 +211,7 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
         client = Am4Client(ble_device)
         self._current_client = client
         ok = False
+        retry_soon = False
         try:
             await client.connect()
             self._set(connected=True)
@@ -227,6 +229,9 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
                 ok = True
             if self.history_sync:
                 await self._sync_history(client)
+        except Am4AuthTimeout as err:
+            _LOGGER.debug("%s: %s, reconnecting in %d s", self.address, err, AUTH_RETRY_DELAY)
+            retry_soon = True
         except Am4Disconnected:
             _LOGGER.debug("%s: device left during the session", self.address)
         except (Am4Error, BleakError, TimeoutError) as err:
@@ -235,8 +240,10 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
             _LOGGER.exception("%s: unexpected error during the session", self.address)
         finally:
             self._next_session = monotonic() + (
-                AM4_SESSION_INTERVAL if ok else SESSION_COOLDOWN
+                AM4_SESSION_INTERVAL if ok else AUTH_RETRY_DELAY if retry_soon else SESSION_COOLDOWN
             )
+            if retry_soon:
+                self._last_adv_time = 0.0  # the next poll may reuse the last advertisement
             self._set(connected=False)
             await self._async_save()
             await client.disconnect()
