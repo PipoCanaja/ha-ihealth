@@ -330,3 +330,34 @@ def test_single_reply_repeated_with_same_seq_is_ignored():
     for hexframe in ("a006001aaab401047d", "a006001aaab401047d"):
         sess.feed(bytes.fromhex(hexframe))
     assert msgs == [P.CMD_QUERY_STATE]
+
+
+def test_interrupted_activity_transfer_keeps_received_points(monkeypatch):
+    days = [activity_block(25, 8, d, 76, [(h, 0, h * 10, h) for h in range(24)]) for d in (27, 28, 29)]
+    # start(27) + data... : mute in the middle of the second day
+    dev = FakeAM4(activity=days, chunk=40, mute_after_echoes=8)
+    monkeypatch.setattr(client_mod, "establish_connection",
+                        lambda *a, **k: _fake_connect(dev))
+    monkeypatch.setattr(client_mod, "CMD_TIMEOUT", 0.3)
+    monkeypatch.setattr(client_mod, "BULK_IDLE_TIMEOUT", 0.3)
+    monkeypatch.setattr(client_mod, "SETTLE_DELAY", 0.01)
+
+    async def run():
+        async with client_mod.Am4Client(Dev()) as c:
+            try:
+                await c.get_activity()
+            except TimeoutError:
+                pass
+            else:
+                raise AssertionError("transfer should stall")
+            return c.partial_activity()
+
+    pts = asyncio.run(run())
+    days_seen = sorted({p.time.date() for p in pts})
+    assert days_seen[0] == datetime(2025, 8, 27).date()
+    assert all(p.time.day == 27 for p in pts[:24]) and len(pts) > 24   # day 27 whole + part of 28
+    assert len(pts) < 72
+
+
+async def _fake_connect(dev):
+    return FakeBleakClient(dev, b"1.3.7")

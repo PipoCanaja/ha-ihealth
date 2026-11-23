@@ -390,6 +390,8 @@ class Am4Session:
             if not self._echo_bulk(cmd, data):  # echo, the tracker waits for it
                 return
             self._end_block(cmd)
+            if cmd in (CMD_ACTIVITY_START, CMD_SLEEP_START) and len(data) >= 3:
+                _LOGGER.debug("0x%02X: day 20%02d-%02d-%02d", cmd, data[0], data[1], data[2])
             if cmd == CMD_STAGE_START:
                 self._current[cmd] = bytearray()         # start payload unused
             else:

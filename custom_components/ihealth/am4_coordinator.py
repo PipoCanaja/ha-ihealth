@@ -294,13 +294,35 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
         stage = await self._step(client.get_stage)
         if stage:
             self._import_stage(stage)
-        activity = await self._step(client.get_activity)
-        if activity:
-            self._import_activity(activity)
-        sleep = await self._step(client.get_sleep)
-        if sleep:
-            self._import_sleep(sleep)
-        del self._seen[:-MAX_SEEN]
+        activity_done = False
+        try:
+            activity = await self._step(client.get_activity)
+            activity_done = True
+            if activity is None:  # interrupted: keep what came in
+                activity = self._partial_activity(client)
+            if activity:
+                self._import_activity(activity)
+            sleep = await self._step(client.get_sleep)
+            if sleep is None:
+                sleep = client.partial_sleep()
+            if sleep:
+                self._import_sleep(sleep)
+        except Am4Disconnected:
+            # link lost mid-transfer: still import what was received
+            if not activity_done and (activity := self._partial_activity(client)):
+                self._import_activity(activity)
+            elif activity_done and (sleep := client.partial_sleep()):
+                self._import_sleep(sleep)
+            raise
+        finally:
+            del self._seen[:-MAX_SEEN]
+
+    def _partial_activity(self, client: Am4Client) -> list[ActivityPoint]:
+        points = client.partial_activity()
+        if points:
+            _LOGGER.debug("%s: activity transfer cut, %d point(s) kept up to %s",
+                          self.address, len(points), max(p.time for p in points))
+        return points
 
     def _import_stage(self, records: list[StageRecord]) -> None:
         seen = set(self._seen)

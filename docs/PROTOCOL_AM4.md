@@ -136,6 +136,10 @@ auth → `B4` → `A4` → `BF` → *(si l'historique est activé)* `0A` → `AC
   annonce, rien dans HA). Un redémarrage le débloque sans rien effacer : le poser sur son
   chargeur USB et maintenir le bouton du chargeur ~10 s jusqu'à « Restart Complete ».
 
+- Débit constaté (proxy ESPHome, écritures sans réponse + réémission) : ~20 s par jour
+  d'activité (≈ 30 messages `AD` de 10 points). Le bracelet envoie les jours du plus ancien
+  au plus récent ; ceux d'août 2025 étaient encore en mémoire en novembre 2026.
+
 ## Inconnues à vérifier sur le vrai bracelet
 
 - Le bracelet efface-t-il ce qu'il a transmis après l'écho de *fin* ? Probable (mémoire

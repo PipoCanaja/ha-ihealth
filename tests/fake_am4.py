@@ -38,7 +38,7 @@ def sleep_stage_record(y, mo, d, hh, mi, minutes, eff10, is50):
 
 class FakeAM4:
     def __init__(self, battery_level=7, mode=1, steps=4321, calories=187,
-                 activity=(), sleep=(), stage=b"", user_id=123456, chunk=40, ignore_fa=0, lose_echoes=()):
+                 activity=(), sleep=(), stage=b"", user_id=123456, chunk=40, ignore_fa=0, lose_echoes=(), mute_after_echoes=None):
         self.battery_level = battery_level
         self.mode = mode
         self.steps = steps
@@ -51,6 +51,7 @@ class FakeAM4:
         self.ignore_fa = ignore_fa       # FA requests ignored after connecting
         self.lose_echoes = set(lose_echoes)  # indexes of echo frames lost on the air
         self._echo_count = 0
+        self.mute_after_echoes = mute_after_echoes  # stop answering (stuck tracker)
         self._seen_seqs: list[int] = []
         self.duplicates = 0
         self.device_id = os.urandom(16)
@@ -104,6 +105,8 @@ class FakeAM4:
             self.acks += 1
             return
         is_echo = self._waiting is not None and len(frame) == 7 and frame[5] == self._waiting
+        if self.mute_after_echoes is not None and self._echo_count >= self.mute_after_echoes:
+            return
         if is_echo:
             idx, self._echo_count = self._echo_count, self._echo_count + 1
             if idx in self.lose_echoes:

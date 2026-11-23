@@ -62,7 +62,9 @@ CMD_TIMEOUT = 4.0
 # A bulk transfer may take long; give up only after this long without any
 # message of that transfer
 BULK_IDLE_TIMEOUT = 6.0
-BULK_MAX_DURATION = 600.0
+# No overall limit worth having: a tracker that was not synced for months
+# takes ~20 s per stored day. Only the idle timeout ends a transfer.
+BULK_MAX_DURATION = 4 * 3600.0
 # BleCommProtocol.SendTimerTask: 10 ms between writes (bursts get lost)
 WRITE_GAP = 0.01
 RETRANSMIT_PERIOD = 0.25
@@ -291,6 +293,25 @@ class Am4Client:
             if self._waiters.get(finish) is fut:
                 del self._waiters[finish]
         return list(self._session.blocks[start])
+
+    def collected(self, start: int, include_partial: bool = False) -> list[bytes]:
+        """Blocks of a bulk transfer received so far (after a failure)."""
+        if self._session is None:
+            return []
+        blocks = list(self._session.blocks[start])
+        cur = self._session._current[start]
+        if include_partial and cur:
+            blocks.append(bytes(cur))
+        return blocks
+
+    def partial_activity(self) -> list[ActivityPoint]:
+        """Activity points received before an interrupted transfer: each one
+        carries its own time, so an unfinished day is usable as is."""
+        return decode_activity(self.collected(CMD_ACTIVITY_START, include_partial=True))
+
+    def partial_sleep(self) -> list[SleepSession]:
+        """Completed nights only: an unfinished one would come back longer."""
+        return decode_sleep(self.collected(CMD_SLEEP_START))
 
     # ------------------------------------------------------------ commands
     async def get_state(self) -> State | None:

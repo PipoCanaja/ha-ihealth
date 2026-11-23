@@ -116,6 +116,11 @@ points d'activité (toutes les 5 min) et du sommeil détaillé. ⚠️ Le bracel
 probablement pas ce qu'il a déjà envoyé : si vous utilisez encore l'application iHealth,
 laissez-le coupé, sinon elle ne recevra plus ces données.
 
+Le premier téléchargement peut être **long** : le bracelet garde tous les jours non
+synchronisés et en envoie un toutes les ~20 s (constaté : des jours d'août 2025 sur un
+bracelet resté sans synchro). Si la session est coupée en route, ce qui a déjà été reçu est
+quand même importé ; un même jour peut alors arriver en deux évènements `ihealth_am4_activity`.
+
 Si le bracelet n'apparaît plus du tout (plus aucune session, la ligne de diagnostic
 `idle - … no connectable advertisement` dans les logs), redémarrez-le : posez-le sur son
 chargeur USB et maintenez le bouton du chargeur ~10 s jusqu'à « Restart Complete ». Ce
