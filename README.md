@@ -1,7 +1,10 @@
 # iHealth pour Home Assistant
 
-Intégration Home Assistant (Bluetooth, locale, sans cloud) pour l'oxymètre de pouls
-**iHealth PO3M** (« Air »).
+Intégration Home Assistant (Bluetooth, locale, sans cloud) pour :
+
+- l'oxymètre de pouls **iHealth PO3 / PO3M** (« Air ») ;
+- le tensiomètre **iHealth KN-550BT** — voir [plus bas](#tensiomètre-kn-550bt) et
+  [docs/PROTOCOL_KN550BT.md](docs/PROTOCOL_KN550BT.md).
 
 > ⚠️ **Expérimental.** Les protocoles ont été reconstitués à partir de l'application iHealth.
 > Tout est vérifié contre le code Java d'origine et un appareil simulé, mais pas encore
@@ -61,6 +64,44 @@ data:
   time_calibrated: true
 ```
 
+## Tensiomètre KN-550BT
+
+Le KN-550BT mesure seul et garde les mesures en mémoire. Après une mesure, il émet en
+Bluetooth un moment ; l'intégration se connecte alors, lit la batterie et **toute la
+mémoire**, remet l'appareil à l'heure puis se déconnecte (pas de nouvelle synchro pendant
+2 min). La mémoire **n'est jamais effacée** : l'application du téléphone voit toujours
+toutes les mesures. Les trois profils Bluetooth du KN-550BT (BPAV21, BPAV10, « stream »)
+sont gérés.
+
+| Entité | Description |
+|---|---|
+| Systolique, Diastolique (mmHg), Fréquence cardiaque | dernière mesure |
+| Dernière mesure | horodatage de la dernière mesure |
+| Rythme cardiaque irrégulier | drapeau arythmie de la dernière mesure |
+| Mouvement pendant la mesure | firmwares récents — **désactivé par défaut** |
+| Batterie, Mesures en mémoire | diagnostic |
+| Connecté | session Bluetooth ouverte (diagnostic) |
+| Connexion automatique | coupé = tensiomètre laissé libre pour l'application |
+
+Quand l'horloge du tensiomètre n'était pas fiable au moment d'une mesure (drapeau posé par
+les firmwares récents), l'heure est corrigée avec l'horloge de l'appareil, comme dans
+l'application.
+
+Chaque nouvelle mesure trouvée en mémoire déclenche un évènement :
+
+```yaml
+event_type: ihealth_bp_record
+data:
+  address: "AA:BB:CC:DD:EE:FF"
+  measured_at: "2026-11-23T07:42:10+01:00"
+  systolic: 128
+  diastolic: 82
+  pulse_rate: 67
+  irregular_heartbeat: false
+  body_movement: false
+  time_fixed: false
+```
+
 ## Installation
 
 ### Avec le script `ha-ihealth-update.sh` (recommandé pour tester branches et PR)
@@ -100,8 +141,9 @@ Ajoutez `https://github.com/PipoCanaja/ha-ihealth` comme dépôt personnalisé (
 
 ## Configuration
 
-Allumez l'oxymètre : il est découvert automatiquement (*Paramètres > Appareils et services*).
-Sinon, *Ajouter une intégration > iHealth* pendant qu'il est allumé.
+Allumez l'oxymètre, ou faites une mesure avec le tensiomètre : l'appareil est découvert
+automatiquement (*Paramètres > Appareils et services*). Sinon, *Ajouter une intégration >
+iHealth* pendant qu'il émet.
 
 ## Débogage
 

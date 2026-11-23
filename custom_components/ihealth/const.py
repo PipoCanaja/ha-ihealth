@@ -15,3 +15,20 @@ SESSION_COOLDOWN = 20
 MEASURE_TIMEOUT = 600
 
 EVENT_HISTORY_RECORD = f"{DOMAIN}_history_record"
+
+# KN-550BT blood-pressure monitor
+KN550BT_MODEL = "KN-550BT"
+KN550BT_LOCAL_NAME = "KN-550BT"
+KN550BT_SERVICE_AV21 = "636f6d2e-6a69-7561-6e2e-425041563231"  # com.jiuan.BPAV21
+KN550BT_SERVICE_AV10 = "636f6d2e-6a69-7561-6e2e-425041563130"  # com.jiuan.BPAV10 (shared)
+KN550BT_SERVICE_DEV = "636f6d2e-6a69-7561-6e2e-646576000000"   # com.jiuan.dev (shared)
+# After a successful download, wait this long before the next one: the monitor
+# keeps advertising for a while after a measurement (seconds)
+KN550BT_SESSION_COOLDOWN = 120
+
+EVENT_BP_RECORD = f"{DOMAIN}_bp_record"
+
+# Config entry data: which kind of device the entry is for
+CONF_KIND = "kind"
+KIND_PO3 = "po3"
+KIND_KN550BT = "kn550bt"
