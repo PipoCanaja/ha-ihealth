@@ -204,10 +204,12 @@ class _Transport:
         self.follow_seq = follow_seq
         self.retransmit = retransmit
         self.pending: dict[int, list] = {}   # our seq -> [frame, last sent, resends]
-        # BleUnPackageData: seqs of the last message handed over; a message
-        # received again with the same seqs is acknowledged but ignored
-        self._done_seqs: set[int] = set()
-        self._cur_seqs: set[int] = set()
+        # Frames of the last message handed over (seq -> bytes): a frame received
+        # again *identical* is acknowledged but ignored. Comparing the seq alone
+        # is not enough: the AM4 numbers its next message from the echo it
+        # accepted, so a new message can reuse the seqs of the previous one.
+        self._done_frames: dict[int, bytes] = {}
+        self._cur_frames: dict[int, bytes] = {}
         self.seq = 1
         self._rx = bytearray()
         self._frag: dict[int, bytes] = {}   # idx -> data
@@ -318,30 +320,30 @@ class _Transport:
         elif self.follow_seq:
             self.seq = (seq + 1) & 0xFF
 
-        if self.follow_seq and seq in self._done_seqs:
+        if self.follow_seq and self._done_frames.get(seq) == f:
             _LOGGER.debug("repeated frame seq %02X ignored", seq)
             return None
         if field2 in (0x00, 0xF0):               # single packet
             if self.follow_seq:
-                self._done_seqs = {seq}
+                self._done_frames = {seq: f}
             return (f[5] & 0xFF, bytes(f[6:-1]))
 
         count = (field2 >> 4) + 1                 # multi-fragment
         idx = field2 & 0x0F
         if idx == count - 1:                      # header fragment
             self._frag.clear()
-            self._cur_seqs = set()
+            self._cur_frames = {}
             self._frag_cmd = f[5] & 0xFF
             self._frag_count = count
             self._frag[idx] = bytes(f[6:-1])      # drop AC + sub-cmd
         else:
             self._frag[idx] = bytes(f[5:-1])      # drop AC only
-        self._cur_seqs.add(seq)
+        self._cur_frames[seq] = f
         if len(self._frag) == self._frag_count:
             data = b"".join(self._frag[i] for i in sorted(self._frag, reverse=True))
             self._frag.clear()
             if self.follow_seq:
-                self._done_seqs, self._cur_seqs = self._cur_seqs, set()
+                self._done_frames, self._cur_frames = self._cur_frames, {}
             return (self._frag_cmd, data)
         return None
 

@@ -361,3 +361,39 @@ def test_interrupted_activity_transfer_keeps_received_points(monkeypatch):
 
 async def _fake_connect(dev):
     return FakeBleakClient(dev, b"1.3.7")
+
+
+# Captured 2026-11-24 00:13:36 (real AM4, fw 137), RX frames only
+RACE_CAPTURE = """
+a00e5010aa0000000b2b00000000000040 a011520caa160000000000000b1b000000000044
+a011510eaa000b200000000000000b2500000064 a00e5010aa0000000b2b00000000000040 a003a014aa5e
+a0115516aaad0b300000000000000b350000003d a0115418aa0000000b3a0000000000000c03006a
+a011531aaa00000000000c080000000000000c37 a011521caa0d0000000000000c12000000000043
+a011511eaa000c170000000000000c1c00000064 a00e5020aa0000000c2100000000000047
+a00e5020aa0000000c2100000000000047
+a0115522aaad0c260000000000000c2b00000037 a0115424aa0000000c300000000000000c35009f
+a0115326aa00000000000c3a0000000000000d76 a0115228aa030000000000000d0800000000003c
+a011512aaa000d0d0000000000000d120000005e a00e502caa0000000d170000000000004a
+a003a024aa6e
+a0115526aaad0d1c0000000000000d2100000029 a0115428aa0000000d260000000000000d2b0091
+a011532aaa00000000000d300000000000000d71 a011522caa350000000000000d3a0000000000a4
+a011512eaa000e030000000000000e0800000050 a00e5030aa0000000e0d00000000000045
+""".split()
+
+
+def test_new_message_reusing_seqs_is_not_taken_for_a_repeat():
+    """The tracker numbered message 0d1c.. from the echo it accepted (0x23 + 3),
+    reusing the seqs 0x26..0x2c of message 0c26.. just before. Comparing seqs
+    only dropped it (transfer slowed to ~70 s a day); frames must be compared."""
+    out, ad = [], []
+    sess = P.Am4Session(writer=out.append,
+                        on_message=lambda c, d: ad.append(d[:2].hex()) if c == P.CMD_ACTIVITY_DATA else None)
+    sess.blocks[P.CMD_ACTIVITY_START] = []
+    sess._current[P.CMD_ACTIVITY_START] = bytearray(6)
+    for hexframe in RACE_CAPTURE:
+        sess.feed(bytes.fromhex(hexframe))
+    assert ad == ["0b30", "0c26", "0d1c"]          # each once, none lost
+    echoes = [f[3] for f in out if len(f) == 7 and f[5] == P.CMD_ACTIVITY_DATA]
+    assert echoes == [0x23, 0x2F, 0x33]              # 0x23 and 0x2f as logged
+    # the echo of 0c26 is obsolete once 0d1c arrived: no longer re-sent
+    assert 0x2F not in sess.t.pending and 0x33 in sess.t.pending

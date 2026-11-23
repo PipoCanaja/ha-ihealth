@@ -279,6 +279,7 @@ class Am4Session:
         # last bulk message and the seq of our echo, to spot a re-sent message
         self._last_bulk: tuple[int, bytes] | None = None
         self._last_echo_seq: int | None = None
+        self._echo_seqs: set[int] = set()   # our echoes not yet acknowledged
 
     def _flush(self) -> None:
         for frame in self.t.out:
@@ -316,10 +317,16 @@ class Am4Session:
             and self._last_echo_seq in self.t.pending
         )
         if repeat:
-            self.t.pending.pop(self._last_echo_seq, None)
             _LOGGER.debug("0x%02X sent again by the tracker: not stored twice", cmd)
+        # A new message means the tracker accepted an echo of the previous one:
+        # echoes still waiting for an ACK are obsolete. Re-sending them (always
+        # "AA <cmd>") could be taken for the echo of the message now arriving.
+        # For a repeat, the new echo replaces the previous one as well.
+        for seq in self._echo_seqs:
+            self.t.pending.pop(seq, None)
         self._last_bulk = key
         self._last_echo_seq = self.t.seq
+        self._echo_seqs = {self.t.seq}
         self._cmd(cmd)
         return not repeat
 

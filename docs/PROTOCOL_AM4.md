@@ -122,8 +122,15 @@ auth → `B4` → `A4` → `BF` → *(si l'historique est activé)* `0A` → `AC
 - Écritures **sans réponse**, comme l'app (la caractéristique offre les deux). Essai avec
   réponse via un proxy ESPHome : chaque écriture attend un aller-retour, les ACK arrivent
   après le délai de réémission du bracelet (~400 ms) et il renvoie tout en boucle.
-- Le bracelet réémet souvent un message **avec les mêmes numéros** : comme
-  `BleUnPackageData`, il est acquitté mais pas traité une seconde fois.
+- Le bracelet réémet souvent un message **avec les mêmes numéros** : il est acquitté mais
+  pas traité une seconde fois. Attention, la répétition se reconnaît à la trame **identique**
+  (numéro *et* contenu) : le bracelet numérote le message suivant à partir de l'écho qu'il a
+  accepté, qui peut être antérieur au dernier envoyé, et réutilise alors les numéros du
+  message précédent (capture du 24/11 00:13:36 : message `0c26…` en 0x22→0x2C, puis `0d1c…`
+  en 0x26→0x30). Comparer les seuls numéros faisait ignorer le nouveau message.
+- Dès qu'un nouveau message arrive, les échos encore en attente d'ACK sont abandonnés : le
+  bracelet n'avance qu'après avoir accepté un écho, et un vieil écho (`AA AD`, toujours
+  identique) renvoyé pourrait passer pour celui du message en cours.
 - Un transfert interrompu reprend à la connexion suivante : le bracelet renvoie de lui-même
   le dernier message non acquitté (ici un `AD`) juste après l'authentification.
 - `B4` → `01 09` (activité, 100 %) ; `A4` répond `00 01 01 00 31 06` ; `BF` → zéro pas.
