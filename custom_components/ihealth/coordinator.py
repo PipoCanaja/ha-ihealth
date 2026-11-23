@@ -30,9 +30,12 @@ from .const import (
     DOMAIN,
     EVENT_HISTORY_RECORD,
     MEASURE_TIMEOUT,
+    KIND_PO3,
     PO3_CLASSIC_SERVICE_UUID,
+    PO3M_MODEL,
     SESSION_COOLDOWN,
 )
+from .bp_coordinator import Kn550Coordinator
 from .po3classic.client import Po3ClassicClient, Po3Disconnected
 from .po3classic.protocol import Po3Error
 from .po3m.client import Po3mClient, Po3mDisconnected
@@ -46,7 +49,7 @@ _LOGGER = logging.getLogger(__name__)
 STORAGE_VERSION = 1
 POLL_INTERVAL = timedelta(seconds=10)
 
-type IHealthConfigEntry = ConfigEntry[Po3mCoordinator]
+type IHealthConfigEntry = ConfigEntry[Po3mCoordinator | Kn550Coordinator]
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +75,8 @@ class Po3mCoordinator(DataUpdateCoordinator[Po3mData]):
     """Run a BLE session each time the PO3M shows up."""
 
     config_entry: IHealthConfigEntry
+    kind = KIND_PO3
+    model = PO3M_MODEL
 
     def __init__(self, hass: HomeAssistant, entry: IHealthConfigEntry) -> None:
         super().__init__(

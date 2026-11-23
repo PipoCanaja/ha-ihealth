@@ -1,4 +1,4 @@
-"""Sensors for the iHealth PO3M."""
+"""Sensors for the iHealth PO3M and KN-550BT."""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -11,11 +11,12 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, EntityCategory
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfPressure
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .coordinator import IHealthConfigEntry, Po3mData
+from .const import KIND_KN550BT
+from .coordinator import IHealthConfigEntry
 from .entity import IHealthEntity
 
 BPM = "bpm"
@@ -23,7 +24,7 @@ BPM = "bpm"
 
 @dataclass(frozen=True, kw_only=True)
 class IHealthSensorDescription(SensorEntityDescription):
-    value_fn: Callable[[Po3mData], Any]
+    value_fn: Callable[[Any], Any]
 
 
 SENSORS: tuple[IHealthSensorDescription, ...] = (
@@ -102,13 +103,64 @@ SENSORS: tuple[IHealthSensorDescription, ...] = (
 )
 
 
+BP_SENSORS: tuple[IHealthSensorDescription, ...] = (
+    IHealthSensorDescription(
+        key="systolic",
+        translation_key="systolic",
+        icon="mdi:heart-box",
+        native_unit_of_measurement=UnitOfPressure.MMHG,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda d: d.systolic,
+    ),
+    IHealthSensorDescription(
+        key="diastolic",
+        translation_key="diastolic",
+        icon="mdi:heart-box-outline",
+        native_unit_of_measurement=UnitOfPressure.MMHG,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda d: d.diastolic,
+    ),
+    IHealthSensorDescription(
+        key="pulse_rate",
+        translation_key="pulse_rate",
+        icon="mdi:heart-pulse",
+        native_unit_of_measurement=BPM,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda d: d.pulse_rate,
+    ),
+    IHealthSensorDescription(
+        key="measured_at",
+        translation_key="measured_at",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda d: d.measured_at,
+    ),
+    IHealthSensorDescription(
+        key="battery",
+        device_class=SensorDeviceClass.BATTERY,
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.battery,
+    ),
+    IHealthSensorDescription(
+        key="stored_readings",
+        translation_key="stored_readings",
+        icon="mdi:memory",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.stored_readings,
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: IHealthConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    async_add_entities(IHealthSensor(coordinator, desc) for desc in SENSORS)
+    descriptions = BP_SENSORS if coordinator.kind == KIND_KN550BT else SENSORS
+    async_add_entities(IHealthSensor(coordinator, desc) for desc in descriptions)
 
 
 class IHealthSensor(IHealthEntity, SensorEntity):

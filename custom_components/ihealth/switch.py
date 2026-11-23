@@ -1,4 +1,4 @@
-"""Switch to enable/disable automatic connection to the oximeter."""
+"""Switch to enable/disable automatic connection to the device."""
 from __future__ import annotations
 
 from homeassistant.components.switch import SwitchEntity
@@ -20,7 +20,7 @@ async def async_setup_entry(
 
 
 class AutoConnectSwitch(IHealthEntity, SwitchEntity, RestoreEntity):
-    """When off, Home Assistant leaves the oximeter alone (free for the phone app)."""
+    """When off, Home Assistant leaves the device alone (free for the phone app)."""
 
     _attr_entity_category = EntityCategory.CONFIG
 

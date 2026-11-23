@@ -12,26 +12,17 @@ from homeassistant.components.bluetooth import (
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_ADDRESS
 
-from .const import (
-    DOMAIN,
-    PO3_CLASSIC_SERVICE_UUID,
-    PO3M_LOCAL_NAME,
-    PO3M_MODEL,
-    PO3M_SERVICE_UUID,
-)
-
-
-def _is_po3m(info: BluetoothServiceInfoBleak) -> bool:
-    uuids = info.service_uuids or ()
-    return (
-        PO3M_SERVICE_UUID in uuids
-        or PO3_CLASSIC_SERVICE_UUID in uuids
-        or PO3M_LOCAL_NAME in (info.name or "")
-    )
+from .const import CONF_KIND, DOMAIN
+from .discovery import MODELS, device_kind
 
 
 def _title(info: BluetoothServiceInfoBleak) -> str:
-    return f"iHealth {PO3M_MODEL} {info.address[-5:].replace(':', '')}"
+    model = MODELS[device_kind(info)]
+    return f"iHealth {model} {info.address[-5:].replace(':', '')}"
+
+
+def _data(info: BluetoothServiceInfoBleak) -> dict[str, str]:
+    return {CONF_ADDRESS: info.address, CONF_KIND: device_kind(info)}
 
 
 class IHealthConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -48,7 +39,7 @@ class IHealthConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
-        if not _is_po3m(discovery_info):
+        if device_kind(discovery_info) is None:
             return self.async_abort(reason="not_supported")
         self._discovery = discovery_info
         self.context["title_placeholders"] = {"name": _title(discovery_info)}
@@ -60,9 +51,7 @@ class IHealthConfigFlow(ConfigFlow, domain=DOMAIN):
         assert self._discovery is not None
         title = _title(self._discovery)
         if user_input is not None:
-            return self.async_create_entry(
-                title=title, data={CONF_ADDRESS: self._discovery.address}
-            )
+            return self.async_create_entry(title=title, data=_data(self._discovery))
         self._set_confirm_only()
         return self.async_show_form(
             step_id="bluetooth_confirm", description_placeholders={"name": title}
@@ -75,13 +64,12 @@ class IHealthConfigFlow(ConfigFlow, domain=DOMAIN):
             address = user_input[CONF_ADDRESS]
             await self.async_set_unique_id(address, raise_on_progress=False)
             self._abort_if_unique_id_configured()
-            return self.async_create_entry(
-                title=_title(self._discovered[address]), data={CONF_ADDRESS: address}
-            )
+            info = self._discovered[address]
+            return self.async_create_entry(title=_title(info), data=_data(info))
 
         configured = self._async_current_ids(include_ignore=False)
         for info in async_discovered_service_info(self.hass, connectable=True):
-            if info.address not in configured and _is_po3m(info):
+            if info.address not in configured and device_kind(info):
                 self._discovered[info.address] = info
         if not self._discovered:
             return self.async_abort(reason="no_devices_found")
@@ -91,7 +79,7 @@ class IHealthConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_ADDRESS): vol.In(
-                        {a: f"{i.name or PO3M_MODEL} ({a})" for a, i in self._discovered.items()}
+                        {a: f"{i.name or MODELS[device_kind(i)]} ({a})" for a, i in self._discovered.items()}
                     )
                 }
             ),

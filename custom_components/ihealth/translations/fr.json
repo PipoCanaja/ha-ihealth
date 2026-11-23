@@ -3,7 +3,7 @@
     "flow_title": "{name}",
     "step": {
       "user": {
-        "description": "Choisissez l'oxymètre à ajouter.",
+        "description": "Choisissez l'appareil iHealth à ajouter.",
         "data": {
           "address": "Appareil"
         }
@@ -14,7 +14,7 @@
     },
     "abort": {
       "already_configured": "L'appareil est déjà configuré",
-      "no_devices_found": "Aucun iHealth PO3M trouvé. Allumez l'oxymètre (doigt inséré) à portée d'un adaptateur ou d'un proxy Bluetooth, puis réessayez.",
+      "no_devices_found": "Aucun appareil iHealth trouvé. Allumez l'oxymètre (doigt inséré) ou faites une mesure avec le tensiomètre KN-550BT, à portée d'un adaptateur ou d'un proxy Bluetooth, puis réessayez.",
       "not_supported": "Cet appareil n'est pas pris en charge"
     }
   },
@@ -22,6 +22,12 @@
     "binary_sensor": {
       "measuring": {
         "name": "Mesure en cours"
+      },
+      "irregular_heartbeat": {
+        "name": "Rythme cardiaque irrégulier"
+      },
+      "body_movement": {
+        "name": "Mouvement pendant la mesure"
       }
     },
     "sensor": {
@@ -48,6 +54,15 @@
       },
       "live_pulse_strength": {
         "name": "Force du pouls en direct"
+      },
+      "systolic": {
+        "name": "Systolique"
+      },
+      "diastolic": {
+        "name": "Diastolique"
+      },
+      "stored_readings": {
+        "name": "Mesures en mémoire"
       }
     },
     "switch": {

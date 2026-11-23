@@ -3,7 +3,7 @@
     "flow_title": "{name}",
     "step": {
       "user": {
-        "description": "Choose the pulse oximeter to add.",
+        "description": "Choose the iHealth device to add.",
         "data": {
           "address": "Device"
         }
@@ -14,7 +14,7 @@
     },
     "abort": {
       "already_configured": "Device is already configured",
-      "no_devices_found": "No iHealth PO3M found. Switch the oximeter on (insert a finger) close to a Bluetooth adapter or proxy, then try again.",
+      "no_devices_found": "No iHealth device found. Switch the oximeter on (insert a finger) or take a reading with the KN-550BT monitor, close to a Bluetooth adapter or proxy, then try again.",
       "not_supported": "This device is not supported"
     }
   },
@@ -22,6 +22,12 @@
     "binary_sensor": {
       "measuring": {
         "name": "Measuring"
+      },
+      "irregular_heartbeat": {
+        "name": "Irregular heartbeat"
+      },
+      "body_movement": {
+        "name": "Body movement"
       }
     },
     "sensor": {
@@ -48,6 +54,15 @@
       },
       "live_pulse_strength": {
         "name": "Live pulse strength"
+      },
+      "systolic": {
+        "name": "Systolic"
+      },
+      "diastolic": {
+        "name": "Diastolic"
+      },
+      "stored_readings": {
+        "name": "Stored readings"
       }
     },
     "switch": {

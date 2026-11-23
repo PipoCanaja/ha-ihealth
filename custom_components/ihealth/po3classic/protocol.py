@@ -177,9 +177,14 @@ def set_time_payload(now: datetime | None = None) -> bytes:
 # Transport: B0/A0 framing, per-fragment ACK, reassembly (BleCommProtocol)
 # --------------------------------------------------------------------------
 class _Transport:
-    """Faithful port of BleCommProtocol (TX) + BleUnPackageData (RX)."""
+    """Faithful port of BleCommProtocol (TX) + BleUnPackageData (RX).
 
-    def __init__(self) -> None:
+    ``family`` is the device-type byte BleCommProtocol puts in its ACK frames
+    (0xAC for the oximeter, 0xA1 for the blood-pressure monitors).
+    """
+
+    def __init__(self, family: int = AC) -> None:
+        self.family = family
         self.seq = 1
         self._rx = bytearray()
         self._frag: dict[int, bytes] = {}   # idx -> data
@@ -228,7 +233,7 @@ class _Transport:
             self.out.append(bytes(f))
 
     def _send_ack(self, low: int, seq_val: int) -> None:
-        b, b2, e = low & 0xFF, seq_val & 0xFF, AC
+        b, b2, e = low & 0xFF, seq_val & 0xFF, self.family
         self.out.append(bytes([TX_HEAD, 3, b, b2, e, (b + b2 + e) & 0xFF]))
 
     # ---- RX ----
