@@ -270,7 +270,7 @@ class Am4Session:
     def __init__(self, writer=None, on_message=None) -> None:
         self.writer = writer
         self.on_message = on_message
-        self.t = _Transport(family=AA)
+        self.t = _Transport(family=AA, follow_seq=True)
         self.authenticated = False
         self.r1 = b""
         # bulk transfers: start cmd -> finished blocks; current block per start

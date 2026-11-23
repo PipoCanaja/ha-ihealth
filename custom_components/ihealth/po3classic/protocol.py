@@ -181,10 +181,17 @@ class _Transport:
 
     ``family`` is the device-type byte BleCommProtocol puts in its ACK frames
     (0xAC for the oximeter, 0xA1 for the blood-pressure monitors).
+
+    ``follow_seq``: like BleCommProtocol, derive our next sequence number from
+    the device's after each received frame (last fragment seq + 3 when it was
+    acknowledged, seq + 1 for a 0xF0 frame). The AM4 drops a reply sent with
+    another number in the middle of a bulk transfer. Off by default, the PO3 /
+    KN-550BT work with an independent counter.
     """
 
-    def __init__(self, family: int = AC) -> None:
+    def __init__(self, family: int = AC, follow_seq: bool = False) -> None:
         self.family = family
+        self.follow_seq = follow_seq
         self.seq = 1
         self._rx = bytearray()
         self._frag: dict[int, bytes] = {}   # idx -> data
@@ -265,6 +272,10 @@ class _Transport:
         # app acknowledges every non-0xF0 frame so the device sends the next one
         if field2 != 0xF0:
             self._send_ack((field2 & 0x0F) + 0xA0, (seq + 1) & 0xFF)
+            if self.follow_seq:   # BleCommProtocol.c()
+                self.seq = ((field2 & 0x0F) * 2 + seq + 1 + 2) & 0xFF
+        elif self.follow_seq:
+            self.seq = (seq + 1) & 0xFF
 
         if field2 in (0x00, 0xF0):               # single packet
             return (f[5] & 0xFF, bytes(f[6:-1]))

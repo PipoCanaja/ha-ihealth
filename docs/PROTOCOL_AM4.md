@@ -23,6 +23,16 @@ famille **`AA`** (`AaInsSet.G = -86`) : trames `B0/A0 | len | frag | seq | AA | 
 fragmentation à 14 octets, acquittement `B0 03 (A0+index) (seq+1) AA somme` de chaque trame
 `frag != F0`.
 
+**Numéro de séquence (vérifié sur le vrai bracelet, fw 137).** Comme dans
+`BleCommProtocol.c()`, le numéro de la trame suivante de l'app n'est pas un compteur
+indépendant : après l'acquittement d'une trame reçue de séquence `s` et d'index `i`, il
+vaut `i×2 + (s+1) + 2`, soit **séquence du dernier fragment + 3** ; après une trame `F0`
+(non acquittée) il vaut `s+1`. Le bracelet fait de même à partir des nôtres (notre `B4` en
+`09` → sa réponse en `0C`). Pour une commande isolée il accepte un autre numéro, mais **au
+milieu d'un transfert fragmenté il ignore un écho mal numéroté** et renvoie le message en
+boucle (capture : dernier fragment `AD` en `22`, écho attendu en `25`, écho envoyé en `19`
+ignoré). Le transport suit donc ce calcul pour l'AM4 (`follow_seq`).
+
 Authentification `IdentifyIns` (`FA` → `FB` 48 o → `FC` 16 o → `FD`/`FE`) avec
 `getKey("AM4")` = `1967a5449c30c3bd20dec808f8ea4d34`, `Ka` dérivée =
 `995a085c06eaa5dcf2f4da075df4804b` (voir `device_keys.md`).
@@ -95,9 +105,19 @@ Ignorés par l'app si firmware < 134. Octet 0 = type :
 Toutes les 15 min au plus, tant que le bracelet émet :
 auth → `B4` → `A4` → `BF` → *(si l'historique est activé)* `0A` → `AC` → `B0` → déconnexion.
 
+## Constats sur le vrai bracelet (fw « 137 », lu tel quel sur `2A26`, sans points)
+
+- Authentification OK avec la clé AM4. Juste après la connexion, le bracelet ignore parfois
+  le premier `FA` (aucune réponse) : l'intégration le renvoie jusqu'à 3 fois.
+- `B4` → `01 09` (activité, 100 %) ; `A4` répond `00 01 01 00 31 06` ; `BF` → zéro pas.
+- `0A` : `0B 00 00` puis `0D` directement quand il n'y a pas de rapport.
+- `AC` : `AB` = `19 08 1b 4c 08 06` + 4 octets (27/08/2025, pas de 76 cm), puis `AD` en 5
+  fragments de 7 points (23:25 → 23:56, 9335 pas cumulés, 414 kcal) : le bracelet garde
+  donc des jours anciens non synchronisés.
+
 ## Inconnues à vérifier sur le vrai bracelet
 
 - Le bracelet efface-t-il ce qu'il a transmis après l'écho de *fin* ? Probable (mémoire
   limitée), d'où l'historique coupé par défaut.
 - Sens des 4 octets retirés des messages *début* et des 2 octets inconnus des en-têtes.
-- Réponse du bracelet à `AC` / `B0` / `0A` quand il n'a rien : *fin* directe supposée.
+- Réponse du bracelet à `AC` / `B0` quand il n'a rien (pour `0A` : *début* vide puis *fin*).

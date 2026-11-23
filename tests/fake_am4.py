@@ -38,7 +38,7 @@ def sleep_stage_record(y, mo, d, hh, mi, minutes, eff10, is50):
 
 class FakeAM4:
     def __init__(self, battery_level=7, mode=1, steps=4321, calories=187,
-                 activity=(), sleep=(), stage=b"", user_id=123456, chunk=40):
+                 activity=(), sleep=(), stage=b"", user_id=123456, chunk=40, ignore_fa=0):
         self.battery_level = battery_level
         self.mode = mode
         self.steps = steps
@@ -48,6 +48,7 @@ class FakeAM4:
         self.stage = stage
         self.user_id = user_id
         self.chunk = chunk               # bytes per data message
+        self.ignore_fa = ignore_fa       # FA requests ignored after connecting
         self.device_id = os.urandom(16)
         self.seed = os.urandom(16)
         self.seq = 2
@@ -60,10 +61,13 @@ class FakeAM4:
         self._fb = {}; self._fc = 0; self._fn = 0
         self._queue: list[tuple[int, bytes]] = []   # bulk messages still to send
         self._waiting: int | None = None             # echo the tracker waits for
+        self._last_tx_seq = 0
+        self.dropped = 0                              # echoes ignored (bad seq)
 
     # ---- device -> app ----
     def tx(self, cmd, data=b""):
         fr, self.seq = _classic_frames(bytes([P.AA, cmd]) + data, self.seq)
+        self._last_tx_seq = fr[-1][3]
         for f in fr:
             self.out += [f[i:i + 20] for i in range(0, len(f), 20)]
 
@@ -95,6 +99,12 @@ class FakeAM4:
         if len(frame) == 6:
             self.acks += 1
             return
+        # like the real tracker: the reply numbering follows ours (seq + 3)
+        self.seq = (frame[3] + 3) & 0xFF
+        if self._waiting is not None and frame[3] != (self._last_tx_seq + 3) & 0xFF:
+            # real AM4: an echo numbered out of sequence is ignored mid-transfer
+            self.dropped += 1
+            return
         f2 = frame[2]
         if f2 in (0, 0xF0):
             self._cmd(frame[5], bytes(frame[6:-1]))
@@ -116,6 +126,9 @@ class FakeAM4:
             return
         self.received.append(cmd)
         if cmd == P.CMD_AUTH_FA:
+            if self.ignore_fa:
+                self.ignore_fa -= 1
+                return
             self.tx(P.CMD_AUTH_FB, self.device_id + os.urandom(16) + self.seed)
         elif cmd == P.CMD_AUTH_FC:
             ok = data == P.classic_auth_response(self.device_id + bytes(16) + self.seed, P.KA_AM4)

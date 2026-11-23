@@ -52,7 +52,9 @@ from .protocol import (
 
 _LOGGER = logging.getLogger(__name__)
 
-AUTH_TIMEOUT = 6.0
+AUTH_TIMEOUT = 2.0   # per attempt
+AUTH_ATTEMPTS = 3    # the tracker sometimes ignores the first FA after connecting
+SETTLE_DELAY = 0.5
 CMD_TIMEOUT = 4.0
 # A bulk transfer may take long; give up only after this long without any
 # message of that transfer
@@ -125,14 +127,20 @@ class Am4Client:
         self._session = Am4Session(writer=self._schedule_write, on_message=self._on_message)
         await self._client.start_notify(RX_UUID, self._on_notify)
         self._writer_task = asyncio.get_running_loop().create_task(self._writer_loop())
-        await asyncio.sleep(0.3)  # let the device settle after the CCCD write
+        await asyncio.sleep(SETTLE_DELAY)  # let the device settle after the CCCD write
         self._auth_event.clear()
         self._auth_ok = False
-        self._session.start_auth()
-        try:
-            await asyncio.wait_for(self._auth_event.wait(), AUTH_TIMEOUT)
-        except TimeoutError:
-            raise Am4Error("no answer to authentication") from None
+        for attempt in range(1, AUTH_ATTEMPTS + 1):
+            self._session.start_auth()
+            try:
+                await asyncio.wait_for(self._auth_event.wait(), AUTH_TIMEOUT)
+                break
+            except TimeoutError:
+                if attempt == AUTH_ATTEMPTS:
+                    raise Am4Error(
+                        f"no answer to authentication ({AUTH_ATTEMPTS} attempts)"
+                    ) from None
+                _LOGGER.debug("%s: no answer to authentication, retrying", self._addr)
         if self._disconnected.is_set():
             raise Am4Disconnected("device disconnected during authentication")
         if not self._auth_ok:
@@ -245,7 +253,9 @@ class Am4Client:
                     await asyncio.wait_for(self._progress.wait(), BULK_IDLE_TIMEOUT)
                 except TimeoutError:
                     if not fut.done():
-                        raise
+                        raise TimeoutError(
+                            f"transfer stalled (no message for {BULK_IDLE_TIMEOUT:.0f} s)"
+                        ) from None
             fut.result()
         finally:
             self._progress = None

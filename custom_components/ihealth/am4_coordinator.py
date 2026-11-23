@@ -249,7 +249,7 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
         except Am4Disconnected:
             raise
         except (Am4Error, TimeoutError) as err:
-            _LOGGER.debug("%s: %s failed: %s", self.address, func.__name__, err)
+            _LOGGER.debug("%s: %s failed: %r", self.address, func.__name__, err)
             return None
 
     # ------------------------------------------------------------ history

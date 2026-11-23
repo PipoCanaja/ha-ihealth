@@ -85,6 +85,7 @@ def test_session_auth_and_bulk_echo():
     # every start/data/finish message was echoed, in order
     assert dev.echoes[0] == P.CMD_ACTIVITY_START and dev.echoes[-1] == P.CMD_ACTIVITY_FINISH
     assert sess.blocks[P.CMD_ACTIVITY_START] == [blk]
+    assert dev.dropped == 0   # echoes carry the sequence number the tracker expects
     assert len(P.decode_activity(sess.blocks[P.CMD_ACTIVITY_START])) == 24
 
 
@@ -143,6 +144,8 @@ def _run(monkeypatch, dev, firmware=b"1.4.0\0", history=True):
     monkeypatch.setattr(client_mod, "establish_connection", fake_connect)
     monkeypatch.setattr(client_mod, "CMD_TIMEOUT", 0.3)
     monkeypatch.setattr(client_mod, "BULK_IDLE_TIMEOUT", 0.3)
+    monkeypatch.setattr(client_mod, "AUTH_TIMEOUT", 0.3)
+    monkeypatch.setattr(client_mod, "SETTLE_DELAY", 0.01)
 
     async def run():
         async with client_mod.Am4Client(Dev()) as c:
@@ -192,3 +195,36 @@ def test_client_empty_history_and_old_firmware(monkeypatch):
     assert out["state"].battery == 70          # fw <= 137: level * 10
     assert out["stage"] == []                  # fw < 134: stage reports ignored
     assert out["activity"] == [] and out["sleep"] == []
+
+
+def test_echo_sequence_follows_device_real_capture():
+    """Frames captured from a real AM4 (fw 137): the AD echo must use seq 0x25
+    (last fragment 0x22 + 3), as BleCommProtocol does; 0x19 was ignored."""
+    out = []
+    sess = P.Am4Session(writer=out.append)
+    sess.blocks[P.CMD_ACTIVITY_START] = []
+    for hexframe in (
+        "a00e0018aaab19081b4c08060000000003",
+        "a011441aaaad171900002477019e171e00002478",
+        "a011431caa77019e172300002477019e172900d3",
+        "a011421eaa002477019e172e00002477019e17da",
+        "a0114120aa3300002477019e1738000024770163",
+        "a0044022aa9eaa",
+    ):
+        sess.feed(bytes.fromhex(hexframe))
+    assert out[0].hex() == "b003a019aa63"           # ACK of AB, as logged
+    assert out[1].hex() == "b004001baaab70"         # AB echo, seq 0x19 + 2
+    assert out[-2].hex() == "b003a023aa6d"          # ACK of the last fragment
+    assert out[-1][:4].hex() == "b0040025"          # AD echo, seq 0x22 + 3
+    (blk,) = sess.blocks[P.CMD_ACTIVITY_START] or [bytes(sess._current[P.CMD_ACTIVITY_START])]
+    pts = P.decode_activity([blk])
+    assert pts[0].time == datetime(2025, 8, 27, 23, 25)
+    assert (pts[0].steps, pts[0].calories, pts[0].step_length) == (9335, 414, 76)
+    assert len(pts) == 7
+
+
+def test_client_retries_unanswered_auth(monkeypatch):
+    dev = FakeAM4(ignore_fa=1)    # seen on the real tracker right after connecting
+    c, out = _run(monkeypatch, dev, history=False)
+    assert dev.authenticated and out["real"] == P.Realtime(4321, 187)
+    assert dev.received.count(P.CMD_AUTH_FA) == 2
