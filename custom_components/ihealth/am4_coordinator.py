@@ -47,6 +47,7 @@ _LOGGER = logging.getLogger(__name__)
 STORAGE_VERSION = 1
 POLL_INTERVAL = timedelta(seconds=10)
 AUTH_RETRY_DELAY = 5  # s: a stuck link usually works again on a new connection
+STATUS_LOG_EVERY = 60  # s: debug line telling why no session runs
 MAX_SEEN = 400
 
 
@@ -100,6 +101,7 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
         self.history_sync = False
         self._current_client: Am4Client | None = None
         self._firmware_done = False
+        self._last_status_log = 0.0
 
     # ------------------------------------------------------------ lifecycle
     async def async_setup(self) -> None:
@@ -150,14 +152,38 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
 
     @callback
     def _async_poll_advertisement(self, _now: datetime | None) -> None:
+        info = bluetooth.async_last_service_info(self.hass, self.address, connectable=True)
+        self._log_status(info)
         if not self.auto_connect:
             return
-        info = bluetooth.async_last_service_info(self.hass, self.address, connectable=True)
         # the tracker advertises the same content all the time: HA does not
         # repeat the callback, so also start a session from the last one seen
         # (only if it is newer than the one that started the previous session)
         if info is not None and getattr(info, "time", 0.0) > self._last_adv_time:
             self._async_on_advertisement(info, None)
+
+    def _log_status(self, info) -> None:
+        """Once a minute, say in the debug log why no session is running."""
+        now = monotonic()
+        if now - self._last_status_log < STATUS_LOG_EVERY:
+            return
+        self._last_status_log = now
+        if self._session_task and not self._session_task.done():
+            return  # a session logs on its own
+        if info is None:
+            adv = "no connectable advertisement known to HA (out of range, "
+            adv += "connected to another device, or not advertising)"
+        else:
+            age = now - getattr(info, "time", now)
+            adv = f"last advertisement {age:.0f} s ago, rssi {info.rssi}, via {info.source}"
+            if getattr(info, "time", 0.0) <= self._last_adv_time:
+                adv += " (already used, waiting for a newer one)"
+        wait = max(0.0, self._next_session - now)
+        _LOGGER.debug(
+            "%s: idle - auto connect %s, history %s, next session allowed in %.0f s, %s",
+            self.address, "on" if self.auto_connect else "OFF",
+            "on" if self.history_sync else "off", wait, adv,
+        )
 
     @callback
     def async_set_auto_connect(self, enabled: bool) -> None:
