@@ -148,6 +148,8 @@ def _run(monkeypatch, dev, firmware=b"1.4.0\0", history=True):
     monkeypatch.setattr(client_mod, "BULK_IDLE_TIMEOUT", 0.3)
     monkeypatch.setattr(client_mod, "AUTH_TIMEOUT", 0.3)
     monkeypatch.setattr(client_mod, "SETTLE_DELAY", 0.01)
+    monkeypatch.setattr(client_mod, "QUIET_SETTLE", 0.05)
+    monkeypatch.setattr(client_mod, "CLOSE_GRACE", 0.2)
 
     async def run():
         async with client_mod.Am4Client(Dev()) as c:
@@ -397,3 +399,14 @@ def test_new_message_reusing_seqs_is_not_taken_for_a_repeat():
     assert echoes == [0x23, 0x2F, 0x33]              # 0x23 and 0x2f as logged
     # the echo of 0c26 is obsolete once 0d1c arrived: no longer re-sent
     assert 0x2F not in sess.t.pending and 0x33 in sess.t.pending
+
+
+def test_client_waits_for_a_transfer_resumed_after_auth(monkeypatch):
+    """Captured 24/11 00:55: a transfer cut in the previous session resumed on
+    its own after FD; the BF sent meanwhile got no answer. The client must let
+    it end before sending commands."""
+    blk = activity_block(26, 11, 23, 70, [(h, 0, h * 10, h) for h in range(24)])
+    dev = FakeAM4(activity=[blk], resume_on_auth=True)
+    c, out = _run(monkeypatch, dev, history=False)
+    assert out["real"] == P.Realtime(4321, 187)
+    assert getattr(dev, "ignored_during_transfer", 0) == 0

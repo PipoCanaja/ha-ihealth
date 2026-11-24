@@ -110,7 +110,9 @@ Ignorés par l'app si firmware < 134. Octet 0 = type :
 ## Séquence de l'intégration
 
 Toutes les 15 min au plus, tant que le bracelet émet :
-auth → `B4` → `A4` → `BF` → *(si l'historique est activé)* `0A` → `AC` → `B0` → déconnexion.
+auth → *(attente de la fin d'un transfert repris par le bracelet)* → `B4` → `A4` → `BF` →
+*(historique activé, au plus toutes les 3 h)* `0A` → `AC` → `B0` → attente des derniers ACK →
+déconnexion.
 
 ## Constats sur le vrai bracelet (fw « 137 », lu tel quel sur `2A26`, sans points)
 
@@ -147,9 +149,17 @@ auth → `B4` → `A4` → `BF` → *(si l'historique est activé)* `0A` → `AC
   d'activité (≈ 30 messages `AD` de 10 points). Le bracelet envoie les jours du plus ancien
   au plus récent ; ceux d'août 2025 étaient encore en mémoire en novembre 2026.
 
+- **Le bracelet n'efface pas** ce qu'il a transmis, même après un transfert complet dont
+  l'écho de fin (`AE`) a été acquitté : la session suivante renvoie tout depuis le plus
+  ancien jour (27/08/2025). D'où l'historique limité à un téléchargement toutes les 3 h.
+- Un transfert coupé (déconnexion) **reprend tout seul** juste après l'authentification
+  suivante ; les commandes envoyées pendant ce temps restent sans réponse (capture du 24/11
+  00:55 : `BF` perdu). L'intégration attend la fin du transfert repris avant ses commandes.
+- Une « nuit » est ouverte (`AF` avec la date/heure du moment) même sans mesure : en-tête
+  seul, ignoré.
+
 ## Inconnues à vérifier sur le vrai bracelet
 
-- Le bracelet efface-t-il ce qu'il a transmis après l'écho de *fin* ? Probable (mémoire
-  limitée), d'où l'historique coupé par défaut.
+- Capacité de la mémoire et ce qui se passe quand elle est pleine (anneau ?).
 - Sens des 4 octets retirés des messages *début* et des 2 octets inconnus des en-têtes.
 - Réponse du bracelet à `AC` / `B0` quand il n'a rien (pour `0A` : *début* vide puis *fin*).

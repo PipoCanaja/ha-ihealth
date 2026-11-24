@@ -68,6 +68,13 @@ BULK_MAX_DURATION = 4 * 3600.0
 # BleCommProtocol.SendTimerTask: 10 ms between writes (bursts get lost)
 WRITE_GAP = 0.01
 RETRANSMIT_PERIOD = 0.25
+# A transfer cut in a previous session resumes on its own right after the
+# authentication; commands sent meanwhile are lost. Wait until it is over.
+QUIET_SETTLE = 1.0
+QUIET_MAX_WAIT = 600.0
+# Before disconnecting, give the last echo time to be acknowledged
+CLOSE_GRACE = 1.5
+_BULK_CMDS = set(BULK_DATA) | set(BULK_FINISH) | {CMD_ACTIVITY_START, CMD_SLEEP_START, CMD_STAGE_START}
 
 
 class Am4Disconnected(Am4Error):
@@ -100,6 +107,8 @@ class Am4Client:
         self._auth_ok = False
         self._disconnected = asyncio.Event()
         self.firmware: str | None = None
+        self._bulk_open = False          # a start/data message came, no finish yet
+        self._last_bulk_rx = 0.0
 
     @property
     def connected(self) -> bool:
@@ -167,6 +176,27 @@ class Am4Client:
         if not self._auth_ok:
             raise Am4Error("AM4 refused authentication")
         _LOGGER.debug("%s: authenticated", self._addr)
+        await self._wait_quiet()
+
+    async def _wait_quiet(self) -> None:
+        """Let a transfer resumed by the tracker finish before our commands."""
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        logged = False
+        while not self._disconnected.is_set():
+            now = loop.time()
+            idle = now - max(self._last_bulk_rx, start)
+            if not self._bulk_open and idle >= QUIET_SETTLE:
+                return
+            if self._bulk_open:
+                if not logged:
+                    _LOGGER.debug("%s: transfer resumed by the tracker, waiting for its end",
+                                  self._addr)
+                    logged = True
+                if idle >= BULK_IDLE_TIMEOUT or now - start >= QUIET_MAX_WAIT:
+                    _LOGGER.debug("%s: resumed transfer stalled, going on", self._addr)
+                    return
+            await asyncio.sleep(0.2)
 
     async def _read(self, uuid: str) -> str | None:
         if self._client.services.get_characteristic(uuid) is None:
@@ -184,6 +214,12 @@ class Am4Client:
         self._writer_task = self._retransmit_task = None
 
     async def disconnect(self) -> None:
+        # let the last frames (e.g. the final echo) be acknowledged first
+        if self.connected and self._session is not None:
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + CLOSE_GRACE
+            while (self._session.t.pending or not self._write_queue.empty()) and loop.time() < deadline:
+                await asyncio.sleep(0.1)
         self._stop_tasks()
         client, self._client = self._client, None
         if client and client.is_connected:
@@ -242,9 +278,11 @@ class Am4Client:
             self._auth_ok = False
             self._auth_event.set()
             return
-        if self._progress and (cmd in BULK_DATA or cmd in BULK_FINISH
-                               or cmd in (CMD_ACTIVITY_START, CMD_SLEEP_START, CMD_STAGE_START)):
-            self._progress.set()
+        if cmd in _BULK_CMDS:
+            self._last_bulk_rx = asyncio.get_running_loop().time()
+            self._bulk_open = cmd not in BULK_FINISH
+            if self._progress:
+                self._progress.set()
         fut = self._waiters.get(cmd)
         if fut and not fut.done():
             fut.set_result((cmd, data))

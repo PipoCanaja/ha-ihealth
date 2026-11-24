@@ -39,6 +39,9 @@ AM4_MODEL = "AM4"
 AM4_SERVICE_UUID = "636f6d2e-6a69-7561-6e2e-414d56313200"  # com.jiuan.AMV12
 # Read the tracker at most this often while it is in range (seconds)
 AM4_SESSION_INTERVAL = 15 * 60
+# History download at most this often: the tracker keeps all it has sent, so
+# each download is complete again (~10-25 s per stored day)
+AM4_HISTORY_INTERVAL = 3 * 3600
 
 EVENT_AM4_ACTIVITY = f"{DOMAIN}_am4_activity"
 EVENT_AM4_SLEEP = f"{DOMAIN}_am4_sleep"

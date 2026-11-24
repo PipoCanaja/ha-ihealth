@@ -38,7 +38,8 @@ def sleep_stage_record(y, mo, d, hh, mi, minutes, eff10, is50):
 
 class FakeAM4:
     def __init__(self, battery_level=7, mode=1, steps=4321, calories=187,
-                 activity=(), sleep=(), stage=b"", user_id=123456, chunk=40, ignore_fa=0, lose_echoes=(), mute_after_echoes=None):
+                 activity=(), sleep=(), stage=b"", user_id=123456, chunk=40, ignore_fa=0, lose_echoes=(), mute_after_echoes=None,
+                 resume_on_auth=False):
         self.battery_level = battery_level
         self.mode = mode
         self.steps = steps
@@ -52,6 +53,7 @@ class FakeAM4:
         self.lose_echoes = set(lose_echoes)  # indexes of echo frames lost on the air
         self._echo_count = 0
         self.mute_after_echoes = mute_after_echoes  # stop answering (stuck tracker)
+        self.resume_on_auth = resume_on_auth  # resume a transfer cut in a previous session
         self._seen_seqs: list[int] = []
         self.duplicates = 0
         self.device_id = os.urandom(16)
@@ -144,6 +146,9 @@ class FakeAM4:
             self._next_bulk()
             return
         self.received.append(cmd)
+        if self._waiting is not None and cmd not in (P.CMD_AUTH_FA, P.CMD_AUTH_FC):
+            self.ignored_during_transfer = getattr(self, "ignored_during_transfer", 0) + 1
+            return
         if cmd == P.CMD_AUTH_FA:
             if self.ignore_fa:
                 self.ignore_fa -= 1
@@ -153,6 +158,10 @@ class FakeAM4:
             ok = data == P.classic_auth_response(self.device_id + bytes(16) + self.seed, P.KA_AM4)
             self.authenticated = ok
             self.tx(P.CMD_AUTH_OK if ok else P.CMD_AUTH_FAIL)
+            if ok and self.resume_on_auth:
+                # seen on the real AM4: the unfinished activity transfer goes on
+                self._load_bulk(P.CMD_ACTIVITY_START, P.CMD_ACTIVITY_DATA,
+                                P.CMD_ACTIVITY_FINISH, self.activity[-1:])
         elif not self.authenticated:
             return
         elif cmd == P.CMD_QUERY_STATE:

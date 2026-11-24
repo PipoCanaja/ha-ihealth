@@ -33,6 +33,7 @@ from .am4.client import Am4AuthTimeout, Am4Client, Am4Disconnected
 from .am4.protocol import ActivityPoint, Am4Error, SleepSession, StageRecord
 from .const import (
     AM4_MODEL,
+    AM4_HISTORY_INTERVAL,
     AM4_SESSION_INTERVAL,
     DOMAIN,
     EVENT_AM4_ACTIVITY,
@@ -102,6 +103,7 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
         self._current_client: Am4Client | None = None
         self._firmware_done = False
         self._last_status_log = 0.0
+        self._next_history = 0.0   # the tracker keeps everything: not every session
 
     # ------------------------------------------------------------ lifecycle
     async def async_setup(self) -> None:
@@ -205,6 +207,7 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
         self.history_sync = enabled
         if enabled and not was:
             self._next_session = 0.0
+            self._next_history = 0.0
             self._async_poll_advertisement(None)
 
     async def _async_update_data(self) -> Am4Data:
@@ -248,13 +251,18 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
             state = await self._step(client.get_state)
             if state is not None:
                 self._set(mode=state.mode, battery=state.battery)
+                ok = True
             await self._step(client.sync_time)
             real = await self._step(client.get_realtime)
             if real is not None:
                 self._set(steps=real.steps, calories=real.calories, synced_at=dt_util.now())
                 ok = True
-            if self.history_sync:
-                await self._sync_history(client)
+            if self.history_sync and monotonic() >= self._next_history:
+                if await self._sync_history(client):
+                    ok = True
+                    # the tracker does not erase what it sent: every download
+                    # is complete again, so not at every session
+                    self._next_history = monotonic() + AM4_HISTORY_INTERVAL
         except Am4AuthTimeout as err:
             _LOGGER.debug("%s: %s, reconnecting in %d s", self.address, err, AUTH_RETRY_DELAY)
             retry_soon = True
@@ -289,7 +297,9 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
     def _local(self, t: datetime | None) -> datetime | None:
         return t.replace(tzinfo=dt_util.get_default_time_zone()) if t else None
 
-    async def _sync_history(self, client: Am4Client) -> None:
+    async def _sync_history(self, client: Am4Client) -> bool:
+        """Download stage reports, activity and sleep; True if the activity
+        transfer went through to its end."""
         # same order as the app (AM4ViewModel.d())
         stage = await self._step(client.get_stage)
         if stage:
@@ -298,6 +308,7 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
         try:
             activity = await self._step(client.get_activity)
             activity_done = True
+            complete = activity is not None
             if activity is None:  # interrupted: keep what came in
                 activity = self._partial_activity(client)
             if activity:
@@ -307,6 +318,7 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
                 sleep = client.partial_sleep()
             if sleep:
                 self._import_sleep(sleep)
+            return complete
         except Am4Disconnected:
             # link lost mid-transfer: still import what was received
             if not activity_done and (activity := self._partial_activity(client)):
