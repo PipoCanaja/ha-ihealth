@@ -39,7 +39,8 @@ def sleep_stage_record(y, mo, d, hh, mi, minutes, eff10, is50):
 class FakeAM4:
     def __init__(self, battery_level=7, mode=1, steps=4321, calories=187,
                  activity=(), sleep=(), stage=b"", user_id=123456, chunk=40, ignore_fa=0, lose_echoes=(), mute_after_echoes=None,
-                 resume_on_auth=False):
+                 resume_on_auth=False, user_info=None, hour_mode=1, reminder=b"\x01\x00\x01",
+                 alarms=None, picture=3):
         self.battery_level = battery_level
         self.mode = mode
         self.steps = steps
@@ -48,6 +49,17 @@ class FakeAM4:
         self.sleep = list(sleep)
         self.stage = stage
         self.user_id = user_id
+        # B6 layout: age steplen height gender kg kg/10 unit goal goal/2 goal/4
+        self.user_info = user_info if user_info is not None else (
+            bytes([45, 76, 172, 0, 78, 5, 0]) + (10000).to_bytes(4, "big")
+            + (5000).to_bytes(4, "big") + (2500).to_bytes(4, "big"))
+        self.hour_mode = hour_mode
+        self.reminder = reminder
+        self.alarms = dict(alarms) if alarms is not None else {
+            1: bytes([1, 7, 30, 1, 0x3E, 1]), 3: bytes([3, 9, 0, 0, 0x40, 0])}
+        self.picture = picture
+        self.bmr = None
+        self.resets = 0
         self.chunk = chunk               # bytes per data message
         self.ignore_fa = ignore_fa       # FA requests ignored after connecting
         self.lose_echoes = set(lose_echoes)  # indexes of echo frames lost on the air
@@ -173,6 +185,50 @@ class FakeAM4:
             self.tx(cmd, self.steps.to_bytes(4, "big") + self.calories.to_bytes(2, "big"))
         elif cmd == P.CMD_USER_ID_GET:
             self.tx(cmd, self.user_id.to_bytes(4, "big"))
+        elif cmd == P.CMD_USER_ID_SET:
+            self.user_id = int.from_bytes(data[:4], "big")
+            self.tx(cmd)
+        elif cmd == P.CMD_USER_INFO_GET:
+            self.tx(cmd, self.user_info)
+        elif cmd == P.CMD_USER_INFO_SET:
+            self.user_info = data
+            self.tx(cmd)
+        elif cmd == P.CMD_BMR_SET:
+            self.bmr = int.from_bytes(data[:2], "big")
+            self.tx(cmd)
+        elif cmd == P.CMD_HOUR_MODE_GET:
+            self.tx(cmd, bytes([self.hour_mode]))
+        elif cmd == P.CMD_HOUR_MODE_SET:
+            self.hour_mode = data[0]
+            self.tx(cmd)
+        elif cmd == P.CMD_REMINDER_GET:
+            self.tx(cmd, self.reminder)
+        elif cmd == P.CMD_REMINDER_SET:
+            self.reminder = data
+            self.tx(cmd)
+        elif cmd == P.CMD_ALARM_NUM:
+            self.tx(cmd, bytes([len(self.alarms)]) + bytes(sorted(self.alarms)))
+        elif cmd == P.CMD_ALARM_GET:
+            self.tx(cmd, self.alarms.get(data[0], bytes([0, 0, 0, 0, 0, 0])))
+        elif cmd == P.CMD_ALARM_SET:
+            self.alarms[data[0]] = data
+            self.tx(cmd)
+        elif cmd == P.CMD_PICTURE_GET:
+            self.tx(cmd, bytes([self.picture]))
+        elif cmd == P.CMD_PICTURE_SET:
+            self.picture = data[0]
+            self.tx(cmd)
+        elif cmd == P.CMD_RESET:
+            assert data == b"\xff\xff\xff\xff", data.hex()
+            # factory state, as seen on 24/11: clock 2000, default profile
+            self.resets += 1
+            self.activity, self.sleep, self.stage = [], [], b""
+            self.steps = self.calories = 0
+            self.user_id = 0
+            self.user_info = bytes([25, 50, 170, 0, 60, 0, 0]) + (10000).to_bytes(4, "big") * 3
+            self.hour_mode, self.reminder, self.alarms, self.picture = 0, b"\x00\x00\x00", {}, 0
+            self.bmr = None
+            self.tx(cmd, b"\x00")
         elif cmd == P.CMD_ACTIVITY_SYNC:
             self._load_bulk(P.CMD_ACTIVITY_START, P.CMD_ACTIVITY_DATA, P.CMD_ACTIVITY_FINISH,
                             self.activity)

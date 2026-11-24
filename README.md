@@ -126,7 +126,22 @@ chargeur USB et maintenez le bouton du chargeur ~10 s jusqu'à « Restart Comple
 redémarrage n'efface ni les réglages ni les données non synchronisées.
 
 L'intégration n'envoie jamais de commande qui modifie le bracelet (réinitialisation,
-identifiant de compte, profil, alarmes…) : il reste associé à votre compte iHealth.
+identifiant de compte, profil, alarmes…), sauf avec le bouton ci-dessous.
+
+**Vider le bracelet** : le bouton **« Réinitialiser après collecte »** (désactivé par
+défaut, à activer dans les entités de l'appareil) programme, pour la session suivante, un
+téléchargement complet de l'historique puis une réinitialisation du bracelet. Le bracelet
+n'a pas de commande « effacer l'historique » : la seule est une remise à zéro complète, qui
+efface aussi l'identifiant de compte et les réglages. L'intégration les lit donc avant et
+les réécrit aussitôt après (identifiant de compte, profil et objectif, BMR, format horaire,
+rappel d'inactivité, alarmes, heure) : l'application iHealth retrouve le bracelet sans
+nouvel appairage. Points à connaître :
+- l'application iHealth ne recevra plus ce que le bracelet contenait et qu'elle n'avait pas
+  encore synchronisé ;
+- les pas et calories du jour repartent de zéro ;
+- la réinitialisation n'a lieu que si les trois transferts sont allés jusqu'au bout ; sinon
+  elle est reportée à la session suivante. Les messages `reset …` / `settings …` apparaissent
+  dans les logs (niveau info).
 
 | Entité | Description |
 |---|---|
@@ -138,6 +153,7 @@ identifiant de compte, profil, alarmes…) : il reste associé à votre compte i
 | Connecté | session Bluetooth ouverte (diagnostic) |
 | Connexion automatique | coupé = bracelet laissé libre pour l'application |
 | Télécharger l'historique | voir ci-dessus |
+| Réinitialiser après collecte | bouton désactivé par défaut, voir ci-dessus |
 
 Avec l'historique, trois évènements sont émis (seulement pour les données nouvelles) :
 

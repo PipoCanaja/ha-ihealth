@@ -30,6 +30,11 @@
         "name": "Mouvement pendant la mesure"
       }
     },
+    "button": {
+      "reset_after_download": {
+        "name": "Réinitialiser après collecte"
+      }
+    },
     "sensor": {
       "spo2": {
         "name": "SpO2"

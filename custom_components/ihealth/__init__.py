@@ -10,7 +10,9 @@ from .bp_coordinator import Kn550Coordinator
 from .const import CONF_KIND, KIND_AM4, KIND_KN550BT, KIND_PO3
 from .coordinator import IHealthConfigEntry, Po3mCoordinator
 
-PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR, Platform.SWITCH]
+PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR, Platform.BUTTON, Platform.SENSOR, Platform.SWITCH
+]
 
 COORDINATORS = {
     KIND_PO3: Po3mCoordinator,

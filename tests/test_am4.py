@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+
+import pytest
 from datetime import datetime
 
 import am4.client as client_mod
@@ -410,3 +412,66 @@ def test_client_waits_for_a_transfer_resumed_after_auth(monkeypatch):
     c, out = _run(monkeypatch, dev, history=False)
     assert out["real"] == P.Realtime(4321, 187)
     assert getattr(dev, "ignored_during_transfer", 0) == 0
+
+
+# ---------------------------------------------------------------- reset
+def test_bmr_and_user_info_payload():
+    info = bytes([45, 76, 172, 0, 78, 5, 0]) + (10000).to_bytes(4, "big") * 3
+    # male, 172 cm, 78.5 kg, 45 y: 88.362 + 1051.66 + 825.43 - 255.47 = 1709.99
+    assert P.bmr_from_user_info(info) == 1710 - 2
+    female = bytes([30, 70, 165, 1, 60, 0, 0]) + bytes(12)
+    # 447.593 + 554.82 + 511.17 - 129.9 = 1383.68
+    assert P.bmr_from_user_info(female) == 1384 - 2
+    assert P.user_info_payload(info, 137) == bytes([P.AA, P.CMD_USER_INFO_SET]) + info
+    with_swim = info + bytes([0, 30])
+    assert P.user_info_payload(with_swim, 137)[2:] == info        # fw 137: 19 bytes
+    assert P.user_info_payload(with_swim, 138)[2:] == with_swim   # fw 138: + swim target
+    s = P.Am4Settings(1, info, 1, b"\x01\x00\x01", [bytes(6)], 3)
+    assert P.Am4Settings.from_dict(s.to_dict()) == s
+
+
+def _run_reset(monkeypatch, dev, firmware=b"137"):
+    async def fake_connect(cls, ble_device, name, **kwargs):
+        return FakeBleakClient(dev, firmware)
+
+    monkeypatch.setattr(client_mod, "establish_connection", fake_connect)
+    for name, value in (("CMD_TIMEOUT", 0.3), ("BULK_IDLE_TIMEOUT", 0.3), ("AUTH_TIMEOUT", 0.3),
+                        ("SETTLE_DELAY", 0.01), ("QUIET_SETTLE", 0.05), ("CLOSE_GRACE", 0.2),
+                        ("RESET_TIMEOUT", 0.3)):
+        monkeypatch.setattr(client_mod, name, value)
+
+    async def run():
+        async with client_mod.Am4Client(Dev()) as c:
+            await c.get_activity()
+            kept = await c.read_settings()
+            await c.reset()
+            await c.restore_settings(kept)
+            return kept, await c.get_activity()
+
+    return asyncio.run(run())
+
+
+def test_reset_keeps_pairing_and_settings(monkeypatch):
+    days = [activity_block(26, 11, 23, 76, [(7, 0, 50, 2)])]
+    dev = FakeAM4(activity=days, steps=900)
+    before = (dev.user_id, dev.user_info, dev.hour_mode, dev.reminder, dict(dev.alarms), dev.picture)
+    kept, after = _run_reset(monkeypatch, dev)
+    assert dev.resets == 1
+    assert after == []                                   # history gone
+    assert (dev.user_id, dev.user_info, dev.hour_mode, dev.reminder,
+            dev.alarms, dev.picture) == before           # all written back as read
+    assert dev.bmr == P.bmr_from_user_info(dev.user_info)
+    assert dev.clock is not None and dev.clock[0] >= 26  # not left in 2000
+    # pairing order of the app: A3 user id before the profile, B7 before A5
+    r = dev.received
+    i = r.index(P.CMD_RESET)
+    assert r.index(P.CMD_USER_ID_SET) > i
+    assert r.index(P.CMD_USER_ID_SET) < r.index(P.CMD_BMR_SET) < r.index(P.CMD_USER_INFO_SET)
+    assert r[-2:] == [P.CMD_USER_ID_GET, P.CMD_ACTIVITY_SYNC]   # id checked after restore
+
+
+def test_reset_refused_on_unpaired_tracker(monkeypatch):
+    dev = FakeAM4(user_id=0)
+    with pytest.raises(P.Am4Error):
+        _run_reset(monkeypatch, dev)
+    assert dev.resets == 0

@@ -64,9 +64,28 @@ Batterie (`AaInsSet`, cas `0xB4`) : niveau > 9 = inconnu ; firmware > 137 →
 Les calories de `BF` sont celles de l'activité ; l'app y ajoute elle-même la part du
 métabolisme de base (BMR) écoulée depuis minuit.
 
-**Jamais envoyées par l'intégration** : `A1` (réinitialisation), `A3` (change le compte
-associé), `A5` / `B7` (profil, BMR), `A8`/`A9`/`AA` (alarmes, rappels), `02`, `06`, `09`,
-`11`, `B5`… qui modifient le bracelet.
+Commandes de réglage (envoyées **uniquement** par le bouton « Réinitialiser après
+collecte », voir plus bas) — chaque commande d'écriture reprend la disposition de la
+réponse de lecture correspondante :
+
+| Lecture → réponse | Écriture | Contenu |
+|---|---|---|
+| `A2` → `[id u32]` | `A3 [id u32]` | identifiant du compte iHealth (seul critère d'association pour l'app) |
+| `B6` → 19 octets (+2 dès fw 138) | `A5` mêmes octets | `âge pas_cm taille_cm sexe(0 = H) kg kg/10 unité objectif u32, objectif/2 u32, objectif/4 u32` (+ objectif natation `hh mm`) |
+| — | `B7 [bmr u16]` | métabolisme de base, envoyé juste avant `A5` |
+| `01` → `[mode]` | `02 [mode]` | format horaire (0..5) |
+| `B3` → `[hh mm actif]` | `AA` mêmes octets | rappel d'inactivité (minutes u16 si l'octet 2 > 59) |
+| `A6` → `[n][id…]`, `A7 [id]` → `[id hh mm répét jours actif]` | `A8` mêmes 6 octets | alarmes (jours : bit 0 = dimanche) |
+| `10` → `[n]` | `11 [n]` | « picture » (écran affiché ? non vérifié) |
+| — | `A1 FF FF FF FF` → `A1 [n]` | réinitialisation usine : efface historique, réglages et identifiant |
+
+BMR (`AmControlBase.a()`) : Harris-Benedict révisée, arrondi au plus proche, moins 2 —
+homme `88,362 + 13,397·kg + 4,799·cm − 5,677·âge`, femme
+`447,593 + 9,247·kg + 3,098·cm − 4,33·âge`. Le facteur de niveau d'activité, tel que
+décompilé, vaut toujours 1.
+
+Jamais envoyées : `09` (code d'appairage), `06` (natation), `A9` (suppression d'alarme), `B5`
+(mode).
 
 ## Transferts en masse
 
@@ -104,8 +123,33 @@ Ignorés par l'app si firmware < 134. Octet 0 = type :
 
 ## Séquence de l'app (`AM4ViewModel`)
 
-`identify` → `A2` (vérifie que le bracelet est associé au compte) → `02` (format horaire) →
-`A4` → `05` → `A5` (profil) → `B7` (BMR) → `0A` → `AC` → `B0` → `BF`.
+`identify` → `A2` (vérifie que le bracelet est associé au compte : sinon il est présenté
+comme non associé) → `02` (format horaire) → `A4` → `05` → `B7` (BMR) → `A5` (profil) →
+`0A` → `AC` → `B0` → `BF`. L'app réécrit donc heure, format horaire et profil à chaque
+connexion.
+
+## Appairage par l'app (`AMSendRandomActivity`, `AM4SendRandomViewModel.c()`)
+
+1. `09 d1..d6` : 6 chiffres aléatoires choisis par l'app, affichés par le bracelet ;
+   l'utilisateur recopie les 2 derniers, la vérification est faite **dans l'app** (le
+   bracelet ne contrôle rien).
+2. `AC` puis trois étapes non visibles dans l'archive (classe
+   `androidx.constraintlayout.core.state.a` absente).
+3. `A3` identifiant du compte → liaison côté cloud (`ambinding`).
+4. `B7` + `A5` (profil, objectif quotidien, défaut 10 000), `02` (format horaire du
+   téléphone), trois autres étapes non visibles, puis `amDeviceBind` (cloud).
+
+Après un `A1` envoyé par l'app, celle-ci retire aussi le bracelet du compte dans le cloud
+(`amunbinding`). Un `A1` envoyé par l'intégration ne touche pas au cloud : réécrire le même
+identifiant suffit pour que l'app reconnaisse le bracelet.
+
+## Réinitialisation par l'intégration (bouton « Réinitialiser après collecte »)
+
+À la session qui suit l'appui : téléchargement complet (`0A`, `AC`, `B0` tous allés au bout,
+sinon c'est reporté) → lecture `A2`, `B6`, `01`, `B3`, `10`, `A6`/`A7` (rien n'est fait si
+l'identifiant vaut 0) → sauvegarde sur disque → `A1` → `A3` → `A4` → `B7` → `A5` → `02` →
+`AA` → `A8`… → `11` → `A2` (doit redonner l'identifiant). Si la session est coupée après
+`A1`, la réécriture est refaite en début de session suivante.
 
 ## Séquence de l'intégration
 

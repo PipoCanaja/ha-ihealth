@@ -7,8 +7,9 @@ every AM4_SESSION_INTERVAL), one BLE session is run:
     [-> stage reports -> activity points -> sleep]   (only if "history" is on)
     -> disconnect
 
-Downloading the history is off by default: the tracker may drop what it has
-sent, and the phone app would then never get it.
+Downloading the history is off by default. The tracker does not erase what
+it has sent; the "reset after download" button (disabled by default) empties
+it once: full download, then settings kept -> A1 -> settings written back.
 """
 from __future__ import annotations
 
@@ -30,7 +31,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .am4.client import Am4AuthTimeout, Am4Client, Am4Disconnected
-from .am4.protocol import ActivityPoint, Am4Error, SleepSession, StageRecord
+from .am4.protocol import ActivityPoint, Am4Error, Am4Settings, SleepSession, StageRecord
 from .const import (
     AM4_MODEL,
     AM4_HISTORY_INTERVAL,
@@ -104,12 +105,16 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
         self._firmware_done = False
         self._last_status_log = 0.0
         self._next_history = 0.0   # the tracker keeps everything: not every session
+        self._history_complete = False  # last download went to the end of all 3 transfers
+        self.reset_requested = False    # button: empty the tracker after the next download
+        self._pending_restore: dict | None = None  # settings to write back after A1
 
     # ------------------------------------------------------------ lifecycle
     async def async_setup(self) -> None:
         stored = await self._store.async_load() or {}
         self._seen = list(stored.get("seen", []))
         self._activity_last = stored.get("activity_last")
+        self._pending_restore = stored.get("pending_restore")
         last = stored.get("last_result") or {}
         values = {}
         for key in _PERSISTED:
@@ -128,6 +133,7 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
             {
                 "seen": self._seen[-MAX_SEEN:],
                 "activity_last": self._activity_last,
+                "pending_restore": self._pending_restore,
                 "last_result": last,
             }
         )
@@ -181,10 +187,15 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
             if getattr(info, "time", 0.0) <= self._last_adv_time:
                 adv += " (already used, waiting for a newer one)"
         wait = max(0.0, self._next_session - now)
+        extra = ""
+        if self.reset_requested:
+            extra += ", reset after download requested"
+        if self._pending_restore:
+            extra += ", settings to write back"
         _LOGGER.debug(
-            "%s: idle - auto connect %s, history %s, next session allowed in %.0f s, %s",
+            "%s: idle - auto connect %s, history %s%s, next session allowed in %.0f s, %s",
             self.address, "on" if self.auto_connect else "OFF",
-            "on" if self.history_sync else "off", wait, adv,
+            "on" if self.history_sync else "off", extra, wait, adv,
         )
 
     @callback
@@ -209,6 +220,16 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
             self._next_session = 0.0
             self._next_history = 0.0
             self._async_poll_advertisement(None)
+
+    @callback
+    def async_request_reset(self) -> None:
+        """Button: at the next session, download everything, then empty the
+        tracker (A1) and write its pairing and settings back."""
+        self.reset_requested = True
+        self._next_session = 0.0
+        self._next_history = 0.0
+        _LOGGER.info("%s: reset requested, done after the next complete download", self.address)
+        self._async_poll_advertisement(None)
 
     async def _async_update_data(self) -> Am4Data:
         return self.data
@@ -248,6 +269,9 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
                 self._update_device_registry(client.firmware)
                 self._firmware_done = True
 
+            if self._pending_restore:
+                await self._restore(client)   # a previous reset was cut before it
+
             state = await self._step(client.get_state)
             if state is not None:
                 self._set(mode=state.mode, battery=state.battery)
@@ -257,12 +281,18 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
             if real is not None:
                 self._set(steps=real.steps, calories=real.calories, synced_at=dt_util.now())
                 ok = True
-            if self.history_sync and monotonic() >= self._next_history:
+            if (self.history_sync or self.reset_requested) and monotonic() >= self._next_history:
                 if await self._sync_history(client):
                     ok = True
                     # the tracker does not erase what it sent: every download
                     # is complete again, so not at every session
                     self._next_history = monotonic() + AM4_HISTORY_INTERVAL
+                if self.reset_requested:
+                    if self._history_complete:
+                        await self._reset_tracker(client)
+                    else:
+                        _LOGGER.debug("%s: download incomplete, reset postponed", self.address)
+                        self._next_history = 0.0
         except Am4AuthTimeout as err:
             _LOGGER.debug("%s: %s, reconnecting in %d s", self.address, err, AUTH_RETRY_DELAY)
             retry_soon = True
@@ -293,6 +323,41 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
             _LOGGER.debug("%s: %s failed: %r", self.address, func.__name__, err)
             return None
 
+    # ------------------------------------------------------------ reset
+    async def _reset_tracker(self, client: Am4Client) -> None:
+        try:
+            settings = await client.read_settings()
+        except Am4Disconnected:
+            raise
+        except Am4Error as err:   # e.g. not paired: nothing to put back
+            _LOGGER.warning("%s: reset cancelled: %s", self.address, err)
+            self.reset_requested = False
+            return
+        # kept on disk first: written back at the next session if cut below
+        self._pending_restore = settings.to_dict()
+        await self._async_save()
+        await client.reset()
+        self.reset_requested = False
+        _LOGGER.info("%s: tracker emptied, writing its settings back", self.address)
+        await self._restore(client)
+        real = await self._step(client.get_realtime)   # today's totals restart at 0
+        if real is not None:
+            self._set(steps=real.steps, calories=real.calories, synced_at=dt_util.now())
+
+    async def _restore(self, client: Am4Client) -> None:
+        settings = Am4Settings.from_dict(self._pending_restore)
+        try:
+            await client.restore_settings(settings)
+        except Am4Disconnected:
+            raise
+        except (Am4Error, TimeoutError) as err:
+            _LOGGER.warning("%s: settings not written back yet (%s), next session",
+                            self.address, err)
+            raise
+        self._pending_restore = None
+        await self._async_save()
+        _LOGGER.info("%s: pairing and settings written back", self.address)
+
     # ------------------------------------------------------------ history
     def _local(self, t: datetime | None) -> datetime | None:
         return t.replace(tzinfo=dt_util.get_default_time_zone()) if t else None
@@ -301,6 +366,7 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
         """Download stage reports, activity and sleep; True if the activity
         transfer went through to its end."""
         # same order as the app (AM4ViewModel.d())
+        self._history_complete = False
         stage = await self._step(client.get_stage)
         if stage:
             self._import_stage(stage)
@@ -314,6 +380,7 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
             if activity:
                 self._import_activity(activity)
             sleep = await self._step(client.get_sleep)
+            self._history_complete = stage is not None and complete and sleep is not None
             if sleep is None:
                 sleep = client.partial_sleep()
             if sleep:

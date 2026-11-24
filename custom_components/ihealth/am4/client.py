@@ -4,8 +4,9 @@ A session is: connect -> read firmware (Device Information) -> authenticate
 -> state/battery -> set clock -> today's totals -> (optionally) the stored
 history -> disconnect.
 
-Commands that would change the tracker's configuration or account binding
-(reset, user id, user info, alarms...) are never sent.
+Commands that change the tracker's configuration or account binding
+(reset, user id, user info, alarms...) are only sent on explicit request, as
+read_settings() -> reset() -> restore_settings(): the same values go back.
 """
 from __future__ import annotations
 
@@ -21,33 +22,51 @@ from .protocol import (
     CHAR_FIRMWARE,
     CMD_ACTIVITY_FINISH,
     CMD_ACTIVITY_START,
+    CMD_ALARM_GET,
+    CMD_ALARM_NUM,
+    CMD_ALARM_SET,
     CMD_AUTH_FAIL,
     CMD_AUTH_OK,
+    CMD_BMR_SET,
+    CMD_HOUR_MODE_GET,
+    CMD_HOUR_MODE_SET,
+    CMD_PICTURE_GET,
+    CMD_PICTURE_SET,
     CMD_QUERY_STATE,
     CMD_REALTIME,
+    CMD_REMINDER_GET,
+    CMD_REMINDER_SET,
+    CMD_RESET,
     CMD_SLEEP_FINISH,
     CMD_SLEEP_START,
     CMD_STAGE_FINISH,
     CMD_STAGE_START,
     CMD_SYNC_TIME,
     CMD_USER_ID_GET,
+    CMD_USER_ID_SET,
+    CMD_USER_INFO_GET,
+    CMD_USER_INFO_SET,
     FW_STAGE_DATA,
+    USER_INFO_LEN,
     RX_UUID,
     SERVICE_UUID,
     TX_UUID,
     ActivityPoint,
     Am4Error,
     Am4Session,
+    Am4Settings,
     Realtime,
     SleepSession,
     StageRecord,
     State,
+    bmr_from_user_info,
     decode_activity,
     decode_realtime,
     decode_sleep,
     decode_stage,
     decode_state,
     firmware_number,
+    user_info_payload,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -74,6 +93,7 @@ QUIET_SETTLE = 1.0
 QUIET_MAX_WAIT = 600.0
 # Before disconnecting, give the last echo time to be acknowledged
 CLOSE_GRACE = 1.5
+RESET_TIMEOUT = 10.0  # A1 erases the memory: give it time
 _BULK_CMDS = set(BULK_DATA) | set(BULK_FINISH) | {CMD_ACTIVITY_START, CMD_SLEEP_START, CMD_STAGE_START}
 
 
@@ -382,3 +402,83 @@ class Am4Client:
         if self.fw is not None and self.fw < FW_STAGE_DATA:
             return []  # AaInsSet: ignored on older firmware
         return decode_stage(b"".join(blocks))
+
+    # ------------------------------------------------- reset with restore
+    async def _optional(self, send, reply: int) -> bytes | None:
+        try:
+            _, data = await self._request(send, reply)
+            return data
+        except TimeoutError:
+            _LOGGER.debug("%s: no reply to 0x%02X, not kept", self._addr, reply)
+            return None
+
+    async def read_settings(self) -> Am4Settings:
+        """Everything A1 erases and the app (or we) can write back."""
+        s = self._session
+        user_id = await self.get_user_id()
+        if not user_id:
+            raise Am4Error("no user id: the tracker is not paired, nothing to keep")
+        _, info = await self._request(lambda: s.command(CMD_USER_INFO_GET), CMD_USER_INFO_GET)
+        if len(info) < USER_INFO_LEN:
+            raise Am4Error(f"user info too short: {info.hex()}")
+        hour = await self._optional(lambda: s.command(CMD_HOUR_MODE_GET), CMD_HOUR_MODE_GET)
+        reminder = await self._optional(lambda: s.command(CMD_REMINDER_GET), CMD_REMINDER_GET)
+        picture = await self._optional(lambda: s.command(CMD_PICTURE_GET), CMD_PICTURE_GET)
+        alarms: list[bytes] = []
+        num = await self._optional(lambda: s.command(CMD_ALARM_NUM), CMD_ALARM_NUM)
+        if num:
+            for alarm_id in num[1:1 + num[0]]:
+                a = await self._optional(
+                    lambda i=alarm_id: s.command(CMD_ALARM_GET, bytes([i])), CMD_ALARM_GET
+                )
+                if a and len(a) >= 6 and a[0]:
+                    alarms.append(bytes(a[:6]))
+        settings = Am4Settings(
+            user_id=user_id,
+            user_info=bytes(info),
+            hour_mode=hour[0] if hour else None,
+            reminder=bytes(reminder[:3]) if reminder and len(reminder) >= 3 else None,
+            alarms=alarms,
+            picture=picture[0] if picture else None,
+        )
+        _LOGGER.debug("%s: settings kept before reset: %s", self._addr, settings.to_dict())
+        return settings
+
+    async def reset(self) -> None:
+        """A1: erases the history, the settings and the user id."""
+        _, data = await self._request(self._session.reset, CMD_RESET, timeout=RESET_TIMEOUT)
+        _LOGGER.debug("%s: reset done (%s)", self._addr, data.hex())
+
+    async def restore_settings(self, settings: Am4Settings) -> None:
+        """Write back what read_settings() kept, in the app's pairing order
+        (AM4SendRandomViewModel.c()), then check the user id."""
+        s = self._session
+        await self._request(
+            lambda: s.command(CMD_USER_ID_SET, settings.user_id.to_bytes(4, "big")),
+            CMD_USER_ID_SET,
+        )
+        await self.sync_time()
+        # setUserInfo(): B7 (BMR) first, then A5
+        bmr = bmr_from_user_info(settings.user_info)
+        await self._request(lambda: s.command(CMD_BMR_SET, bmr.to_bytes(2, "big")), CMD_BMR_SET)
+        payload = user_info_payload(settings.user_info, self.fw)
+        await self._request(lambda: s._send(payload), CMD_USER_INFO_SET)
+        if settings.hour_mode is not None:
+            await self._request(
+                lambda: s.command(CMD_HOUR_MODE_SET, bytes([settings.hour_mode])),
+                CMD_HOUR_MODE_SET,
+            )
+        if settings.reminder is not None:
+            await self._request(
+                lambda: s.command(CMD_REMINDER_SET, settings.reminder), CMD_REMINDER_SET
+            )
+        for alarm in settings.alarms:
+            await self._request(lambda a=alarm: s.command(CMD_ALARM_SET, a), CMD_ALARM_SET)
+        if settings.picture is not None:
+            await self._optional(
+                lambda: s.command(CMD_PICTURE_SET, bytes([settings.picture])), CMD_PICTURE_SET
+            )
+        user_id = await self.get_user_id()
+        if user_id != settings.user_id:
+            raise Am4Error(f"user id {user_id} after restore, {settings.user_id} expected")
+        _LOGGER.debug("%s: settings restored (user id %d, bmr %d)", self._addr, user_id, bmr)

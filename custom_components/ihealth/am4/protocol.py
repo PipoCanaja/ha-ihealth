@@ -53,11 +53,16 @@ CMD_STAGE_SYNC = 0x0A        # reply: 0B start, 0C data, 0D finish
 CMD_STAGE_START = 0x0B
 CMD_STAGE_DATA = 0x0C
 CMD_STAGE_FINISH = 0x0D
-CMD_RESET = 0xA1             # erases the tracker: never sent
+CMD_RESET = 0xA1             # erases data, settings and user id (see Am4Settings)
 CMD_USER_ID_GET = 0xA2
-CMD_USER_ID_SET = 0xA3       # rebinds the tracker to another account: never sent
+CMD_USER_ID_SET = 0xA3       # only to put back the id read before a reset
 CMD_SYNC_TIME = 0xA4
 CMD_USER_INFO_SET = 0xA5
+CMD_ALARM_NUM = 0xA6         # reply: [count][id...]
+CMD_ALARM_GET = 0xA7         # [id] -> [id hh mm repeat weekbits on]
+CMD_ALARM_SET = 0xA8         # same 6 bytes
+CMD_REMINDER_SET = 0xAA      # same 3 bytes as B3
+CMD_REMINDER_GET = 0xB3      # reply: [hh mm on] (or minutes u16 when > 59)
 CMD_ACTIVITY_SYNC = 0xAC     # reply: AB start, AD data, AE finish
 CMD_ACTIVITY_START = 0xAB
 CMD_ACTIVITY_DATA = 0xAD
@@ -68,6 +73,9 @@ CMD_SLEEP_DATA = 0xB1
 CMD_SLEEP_FINISH = 0xB2
 CMD_QUERY_STATE = 0xB4       # reply: [mode][battery level 0..9]
 CMD_USER_INFO_GET = 0xB6
+CMD_BMR_SET = 0xB7           # [bmr u16]: no read command
+CMD_PICTURE_GET = 0x10
+CMD_PICTURE_SET = 0x11
 CMD_REALTIME = 0xBF          # reply: [steps u32][calories u16] (today)
 CMD_AUTH_FA = 0xFA
 CMD_AUTH_FB = 0xFB
@@ -93,6 +101,8 @@ SLEEP_STEP = timedelta(minutes=5)
 # AaInsSet firmware thresholds (version with the dots removed: "1.3.8" -> 138)
 FW_STAGE_DATA = 134          # L: stage reports are empty before this
 FW_BATTERY_PLUS_ONE = 137    # battery level counts from 0 above this
+FW_USER_INFO_SWIM = 138      # AaInsSet.M: A5 / B6 carry 2 more bytes (swim target)
+USER_INFO_LEN = 19           # A5 / B6 payload before that
 
 _KEY_AM4 = bytes.fromhex("1967a5449c30c3bd20dec808f8ea4d34")  # getKey("AM4")
 KA_AM4 = _derive_ka(_KEY_AM4)
@@ -255,6 +265,78 @@ def decode_stage(data: bytes) -> list[StageRecord]:
     return out
 
 
+# --------------------------------------------------------------------------
+# Settings kept across a reset (A1)
+# --------------------------------------------------------------------------
+@dataclass(slots=True)
+class Am4Settings:
+    """What A1 erases, read back from the tracker just before it.
+
+    The phone app recognises its tracker only by the user id stored in it
+    (AM4ViewModel.b(): getUserId() compared with the account's id), and its
+    pairing (AMSendRandomActivity) is: sendRandom, sync, A3 user id, B7 + A5
+    profile, 02 hour mode, then the cloud binding. The cloud side is not
+    touched by A1 sent from here, so writing the same values back is enough
+    for the app to take the tracker as still paired.
+
+    Raw reply bytes are kept: each set command takes the same layout as the
+    matching get reply.
+    """
+
+    user_id: int
+    user_info: bytes                     # B6 reply = A5 payload
+    hour_mode: int | None = None         # 01 reply
+    reminder: bytes | None = None        # B3 reply = AA payload
+    alarms: list[bytes] = field(default_factory=list)  # A7 replies = A8 payloads
+    picture: int | None = None           # 10 reply
+
+    def to_dict(self) -> dict:
+        return {
+            "user_id": self.user_id,
+            "user_info": self.user_info.hex(),
+            "hour_mode": self.hour_mode,
+            "reminder": self.reminder.hex() if self.reminder is not None else None,
+            "alarms": [a.hex() for a in self.alarms],
+            "picture": self.picture,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Am4Settings":
+        return cls(
+            user_id=int(d["user_id"]),
+            user_info=bytes.fromhex(d["user_info"]),
+            hour_mode=d.get("hour_mode"),
+            reminder=bytes.fromhex(d["reminder"]) if d.get("reminder") else None,
+            alarms=[bytes.fromhex(a) for a in d.get("alarms", [])],
+            picture=d.get("picture"),
+        )
+
+
+def user_info_payload(raw: bytes, fw: int | None) -> bytes:
+    """A5 from a B6 reply: [age steplen height gender kg kg/10 unit
+    goal u32, goal/2 u32, goal/4 u32] (+ swim target hh mm from fw 138)."""
+    n = USER_INFO_LEN + (2 if fw is not None and fw >= FW_USER_INFO_SWIM else 0)
+    if len(raw) < n:
+        raise Am4Error(f"user info too short: {raw.hex()}")
+    return bytes([AA, CMD_USER_INFO_SET]) + raw[:n]
+
+
+def bmr_from_user_info(raw: bytes) -> int:
+    """AmControlBase.a(): revised Harris-Benedict, minus 2.
+
+    Decompiled as is, the activity-level factor always ends up as 1.0.
+    gender 0 = male. BigDecimal ROUND_HALF_UP.
+    """
+    age, height, gender = raw[0], raw[2], raw[3]
+    weight = raw[4] + raw[5] / 10
+    if gender == 0:
+        v = 88.362 + 13.397 * weight + 4.799 * height - 5.677 * age
+    else:
+        v = 447.593 + 9.247 * weight + 3.098 * height - 4.33 * age
+    v = abs(v)
+    return int(v + 0.5) - 2
+
+
 def sync_time_payload(now: datetime | None = None) -> bytes:
     """a4Ins(): [yy mm dd hh mi ss weekday 0 0 0 0], weekday 1 = Sunday."""
     now = now or datetime.now()
@@ -349,6 +431,14 @@ class Am4Session:
 
     def get_realtime(self) -> None:
         self._cmd(CMD_REALTIME)
+
+    def command(self, cmd: int, data: bytes = b"") -> None:
+        """Any other command: AA <cmd> <data>."""
+        self._send(bytes([AA, cmd]) + bytes(data))
+
+    def reset(self) -> None:
+        """a1Ins(): the 4 bytes after A1 are always FF (the id argument is unused)."""
+        self.command(CMD_RESET, b"\xff\xff\xff\xff")
 
     def _start_bulk(self, cmd: int, start: int) -> None:
         self.blocks[start] = []

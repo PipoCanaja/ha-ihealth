@@ -30,6 +30,11 @@
         "name": "Body movement"
       }
     },
+    "button": {
+      "reset_after_download": {
+        "name": "Reset after download"
+      }
+    },
     "sensor": {
       "spo2": {
         "name": "SpO2"

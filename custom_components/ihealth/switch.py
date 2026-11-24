@@ -62,8 +62,8 @@ class AutoConnectSwitch(IHealthEntity, SwitchEntity, RestoreEntity):
 class HistorySyncSwitch(IHealthEntity, SwitchEntity, RestoreEntity):
     """AM4: also download activity, sleep and stage reports (off by default).
 
-    The tracker may drop what it has sent, so the phone app would no longer
-    get it: leave this off if the iHealth app is still used.
+    The tracker keeps what it has sent (the phone app still gets it); each
+    download is complete again, so it runs at most every AM4_HISTORY_INTERVAL.
     """
 
     _attr_entity_category = EntityCategory.CONFIG
