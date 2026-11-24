@@ -220,7 +220,7 @@ class FakeAM4:
             self.tx(cmd)
         elif cmd == P.CMD_RESET:
             assert data == b"\xff\xff\xff\xff", data.hex()
-            # factory state, as seen on 24/11: clock 2000, default profile
+            # factory state: default profile (step length 50, as seen on 24/11)
             self.resets += 1
             self.activity, self.sleep, self.stage = [], [], b""
             self.steps = self.calories = 0

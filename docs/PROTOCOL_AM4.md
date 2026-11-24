@@ -49,7 +49,7 @@ Authentification `IdentifyIns` (`FA` → `FB` 48 o → `FC` 16 o → `FD`/`FE`) 
 | Cmd | Sens | Données | Réponse |
 |---|---|---|---|
 | `B4` | état | — | `B4` `[mode][niveau batterie 0..9]` |
-| `A4` | mise à l'heure | `yy mm jj hh mi ss jour_sem 00 00 00 00` (jour_sem : 1 = dimanche) | `A4` |
+| `A4` | mise à l'heure | `yy mm jj hh mi ss jour_sem 00 00 00 00` (jour_sem : 1 = dimanche) | `A4` `00 01 01 00 0d 18` (constant sur le vrai bracelet, ce n'est pas son horloge) |
 | `BF` | totaux du jour | — | `BF` `[pas u32][calories u16]` (gros-boutiste) |
 | `A2` | identifiant de compte | — | `A2` `[id u32]` |
 | `0A` | rapports d'étapes | — | `0B` / `0C`… / `0D` |
