@@ -28,6 +28,14 @@
       },
       "body_movement": {
         "name": "Mouvement pendant la mesure"
+      },
+      "advertising": {
+        "name": "Émet en Bluetooth",
+        "state_attributes": {
+          "last_advertisement": {
+            "name": "Dernière annonce"
+          }
+        }
       }
     },
     "button": {
@@ -104,6 +112,25 @@
       },
       "sleep_end": {
         "name": "Fin du sommeil"
+      },
+      "last_session": {
+        "name": "Dernière session",
+        "state_attributes": {
+          "result": {
+            "name": "Résultat",
+            "state": {
+              "ok": "Réussie",
+              "partial": "Partielle",
+              "auth_timeout": "Authentification bloquée",
+              "disconnected": "Déconnecté",
+              "failed": "Échec",
+              "error": "Erreur"
+            }
+          },
+          "history": {
+            "name": "Historique téléchargé"
+          }
+        }
       }
     },
     "switch": {

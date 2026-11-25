@@ -22,6 +22,7 @@ from .entity import IHealthEntity
 @dataclass(frozen=True, kw_only=True)
 class IHealthBinarySensorDescription(BinarySensorEntityDescription):
     value_fn: Callable[[Any], bool | None]
+    attrs_fn: Callable[[Any], dict | None] | None = None
 
 
 BINARY_SENSORS: tuple[IHealthBinarySensorDescription, ...] = (
@@ -70,6 +71,17 @@ AM4_BINARY_SENSORS: tuple[IHealthBinarySensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda d: d.connected,
     ),
+    IHealthBinarySensorDescription(
+        key="advertising",
+        translation_key="advertising",
+        icon="mdi:bluetooth-audio",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.advertising,
+        attrs_fn=lambda d: {
+            "last_advertisement": d.advertising_changed.isoformat()
+            if d.advertising_changed else None
+        } if d.advertising is False else None,
+    ),
 )
 
 DESCRIPTIONS = {KIND_KN550BT: BP_BINARY_SENSORS, KIND_AM4: AM4_BINARY_SENSORS}
@@ -91,3 +103,8 @@ class IHealthBinarySensor(IHealthEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool | None:
         return self.entity_description.value_fn(self.coordinator.data)
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        fn = self.entity_description.attrs_fn
+        return fn(self.coordinator.data) if fn else None

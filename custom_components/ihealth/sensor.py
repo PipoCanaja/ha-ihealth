@@ -32,6 +32,7 @@ BPM = "bpm"
 @dataclass(frozen=True, kw_only=True)
 class IHealthSensorDescription(SensorEntityDescription):
     value_fn: Callable[[Any], Any]
+    attrs_fn: Callable[[Any], dict | None] | None = None
 
 
 SENSORS: tuple[IHealthSensorDescription, ...] = (
@@ -234,6 +235,14 @@ AM4_SENSORS: tuple[IHealthSensorDescription, ...] = (
         value_fn=lambda d: d.awake_minutes,
     ),
     IHealthSensorDescription(
+        key="last_session",
+        translation_key="last_session",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.last_session,
+        attrs_fn=lambda d: {"result": d.last_session_result, "history": d.last_session_history},
+    ),
+    IHealthSensorDescription(
         key="sleep_start",
         translation_key="sleep_start",
         device_class=SensorDeviceClass.TIMESTAMP,
@@ -266,3 +275,8 @@ class IHealthSensor(IHealthEntity, SensorEntity):
     @property
     def native_value(self) -> Any:
         return self.entity_description.value_fn(self.coordinator.data)
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        fn = self.entity_description.attrs_fn
+        return fn(self.coordinator.data) if fn else None

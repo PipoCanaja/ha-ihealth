@@ -51,6 +51,7 @@ POLL_INTERVAL = timedelta(seconds=10)
 AUTH_RETRY_DELAY = 5  # s: a stuck link usually works again on a new connection
 STATUS_LOG_EVERY = 60  # s: debug line telling why no session runs
 MAX_SEEN = 400
+ADV_STALE = 120  # s without an advertisement (and no session) = not advertising
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,13 +70,22 @@ class Am4Data:
     deep_sleep_minutes: int | None = None
     light_sleep_minutes: int | None = None
     awake_minutes: int | None = None
+    # diagnostics: when the tracker went silent, how the last session ended
+    advertising: bool | None = None
+    advertising_changed: datetime | None = None   # last advertisement seen when it went off
+    last_session: datetime | None = None
+    last_session_result: str | None = None       # see SESSION_RESULTS
+    last_session_history: bool = False
 
+
+SESSION_RESULTS = ("ok", "partial", "auth_timeout", "disconnected", "failed", "error")
 
 _PERSISTED = (
     "battery", "mode", "steps", "calories", "synced_at", "sleep_start", "sleep_end",
     "sleep_minutes", "deep_sleep_minutes", "light_sleep_minutes", "awake_minutes",
+    "last_session", "last_session_result", "last_session_history",
 )
-_DATETIMES = {"synced_at", "sleep_start", "sleep_end"}
+_DATETIMES = {"synced_at", "sleep_start", "sleep_end", "last_session"}
 
 
 class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
@@ -99,6 +109,7 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
         self._session_task: asyncio.Task | None = None
         self._next_session = 0.0
         self._last_adv_time = 0.0
+        self._session_ended = -ADV_STALE
         self.auto_connect = True
         self.history_sync = False
         self._current_client: Am4Client | None = None
@@ -162,6 +173,7 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
     def _async_poll_advertisement(self, _now: datetime | None) -> None:
         info = bluetooth.async_last_service_info(self.hass, self.address, connectable=True)
         self._log_status(info)
+        self._track_advertising(info)
         if not self.auto_connect:
             return
         # the tracker advertises the same content all the time: HA does not
@@ -169,6 +181,24 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
         # (only if it is newer than the one that started the previous session)
         if info is not None and getattr(info, "time", 0.0) > self._last_adv_time:
             self._async_on_advertisement(info, None)
+
+    def _track_advertising(self, info) -> None:
+        """Diagnostic: is the tracker still advertising? Changes only on a
+        transition, so the history shows when it went silent."""
+        if self._session_task and not self._session_task.done():
+            return  # connected to us: not advertising, and that is expected
+        now = monotonic()
+        if now - self._session_ended < ADV_STALE:
+            return  # it may take a moment to advertise again after a session
+        age = None if info is None else now - getattr(info, "time", now)
+        visible = age is not None and age < ADV_STALE
+        if visible == self.data.advertising:
+            return
+        seen = None if age is None else dt_util.now() - timedelta(seconds=age)
+        if not visible:
+            _LOGGER.debug("%s: no advertisement for %d s: tracker silent", self.address,
+                          ADV_STALE if age is None else age)
+        self._set(advertising=visible, advertising_changed=seen)
 
     def _log_status(self, info) -> None:
         """Once a minute, say in the debug log why no session is running."""
@@ -262,6 +292,8 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
         self._current_client = client
         ok = False
         retry_soon = False
+        result = "failed"
+        history = False
         try:
             await client.connect()
             self._set(connected=True)
@@ -282,6 +314,7 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
                 self._set(steps=real.steps, calories=real.calories, synced_at=dt_util.now())
                 ok = True
             if (self.history_sync or self.reset_requested) and monotonic() >= self._next_history:
+                history = True
                 if await self._sync_history(client):
                     ok = True
                     # the tracker does not erase what it sent: every download
@@ -293,22 +326,30 @@ class Am4Coordinator(DataUpdateCoordinator[Am4Data]):
                     else:
                         _LOGGER.debug("%s: download incomplete, reset postponed", self.address)
                         self._next_history = 0.0
+            result = "ok" if ok and (not history or self._history_complete) else "partial"
         except Am4AuthTimeout as err:
             _LOGGER.debug("%s: %s, reconnecting in %d s", self.address, err, AUTH_RETRY_DELAY)
             retry_soon = True
+            result = "auth_timeout"
         except Am4Disconnected:
             _LOGGER.debug("%s: device left during the session", self.address)
+            result = "disconnected"
         except (Am4Error, BleakError, TimeoutError) as err:
             _LOGGER.debug("%s: session failed: %s", self.address, err)
+            result = "failed"
         except Exception:  # noqa: BLE001
             _LOGGER.exception("%s: unexpected error during the session", self.address)
+            result = "error"
         finally:
+            self._session_ended = monotonic()
             self._next_session = monotonic() + (
                 AM4_SESSION_INTERVAL if ok else AUTH_RETRY_DELAY if retry_soon else SESSION_COOLDOWN
             )
             if retry_soon:
                 self._last_adv_time = 0.0  # the next poll may reuse the last advertisement
-            self._set(connected=False)
+            self._set(connected=False, last_session=dt_util.now(),
+                      last_session_result=result, last_session_history=history,
+                      advertising=True)   # we just connected to it: it was advertising
             await self._async_save()
             await client.disconnect()
             self._current_client = None

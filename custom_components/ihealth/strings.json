@@ -28,6 +28,14 @@
       },
       "body_movement": {
         "name": "Body movement"
+      },
+      "advertising": {
+        "name": "Bluetooth advertising",
+        "state_attributes": {
+          "last_advertisement": {
+            "name": "Last advertisement"
+          }
+        }
       }
     },
     "button": {
@@ -104,6 +112,25 @@
       },
       "sleep_end": {
         "name": "Sleep end"
+      },
+      "last_session": {
+        "name": "Last session",
+        "state_attributes": {
+          "result": {
+            "name": "Result",
+            "state": {
+              "ok": "OK",
+              "partial": "Partial",
+              "auth_timeout": "Authentication blocked",
+              "disconnected": "Disconnected",
+              "failed": "Failed",
+              "error": "Error"
+            }
+          },
+          "history": {
+            "name": "History downloaded"
+          }
+        }
       }
     },
     "switch": {

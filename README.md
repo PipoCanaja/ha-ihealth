@@ -46,6 +46,8 @@ Il faut un adaptateur Bluetooth local **ou un proxy ESPHome capable de connexion
 | Batterie | niveau (%) |
 | Mesure en cours | `on` pendant le flux en direct |
 | Connecté | session Bluetooth ouverte (diagnostic) |
+| Émet en Bluetooth | le bracelet émet-il encore ? (diagnostic) — ne change qu'à l'arrêt ou à la reprise des annonces (2 min sans annonce hors session) ; attribut `last_advertisement` = dernière annonce vue quand il s'est tu |
+| Dernière session | heure de la dernière session (diagnostic) ; attributs `result` (`ok`, `partial`, `auth_timeout`, `disconnected`, `failed`, `error`) et `history` (historique téléchargé) |
 | SpO2 / Fréquence / IP / Force du pouls *en direct* | valeurs pendant la mesure, ~1 par seconde — **désactivées par défaut** |
 
 Les valeurs restent affichées (et sont conservées au redémarrage) quand l'oxymètre est éteint.
@@ -83,6 +85,8 @@ sont gérés.
 | Mouvement pendant la mesure | firmwares récents — **désactivé par défaut** |
 | Batterie, Mesures en mémoire | diagnostic |
 | Connecté | session Bluetooth ouverte (diagnostic) |
+| Émet en Bluetooth | le bracelet émet-il encore ? (diagnostic) — ne change qu'à l'arrêt ou à la reprise des annonces (2 min sans annonce hors session) ; attribut `last_advertisement` = dernière annonce vue quand il s'est tu |
+| Dernière session | heure de la dernière session (diagnostic) ; attributs `result` (`ok`, `partial`, `auth_timeout`, `disconnected`, `failed`, `error`) et `history` (historique téléchargé) |
 | Connexion automatique | coupé = tensiomètre laissé libre pour l'application |
 
 Quand l'horloge du tensiomètre n'était pas fiable au moment d'une mesure (drapeau posé par
@@ -151,6 +155,8 @@ nouvel appairage. Points à connaître :
 | Durée de sommeil, Sommeil profond, Sommeil léger, Éveil pendant le sommeil | dernière nuit — **historique uniquement** |
 | Début / Fin du sommeil | dernière nuit — **historique uniquement** |
 | Connecté | session Bluetooth ouverte (diagnostic) |
+| Émet en Bluetooth | le bracelet émet-il encore ? (diagnostic) — ne change qu'à l'arrêt ou à la reprise des annonces (2 min sans annonce hors session) ; attribut `last_advertisement` = dernière annonce vue quand il s'est tu |
+| Dernière session | heure de la dernière session (diagnostic) ; attributs `result` (`ok`, `partial`, `auth_timeout`, `disconnected`, `failed`, `error`) et `history` (historique téléchargé) |
 | Connexion automatique | coupé = bracelet laissé libre pour l'application |
 | Télécharger l'historique | voir ci-dessus |
 | Réinitialiser après collecte | bouton désactivé par défaut, voir ci-dessus |
