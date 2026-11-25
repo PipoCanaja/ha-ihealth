@@ -49,7 +49,7 @@ Authentification `IdentifyIns` (`FA` → `FB` 48 o → `FC` 16 o → `FD`/`FE`) 
 | Cmd | Sens | Données | Réponse |
 |---|---|---|---|
 | `B4` | état | — | `B4` `[mode][niveau batterie 0..9]` |
-| `A4` | mise à l'heure | `yy mm jj hh mi ss jour_sem 00 00 00 00` (jour_sem : 1 = dimanche) | `A4` `00 01 01 00 0d 18` (constant sur le vrai bracelet, ce n'est pas son horloge) |
+| `A4` | mise à l'heure | `yy mm jj hh mi ss jour_sem 00 00 00 00` (jour_sem : 1 = dimanche) | `A4` + 6 octets de sens inconnu (`00 01 01 00 0d 18` deux fois le 24/11, `00 00 00 00 00 00` le 25/11 après un redémarrage ; pas l'horloge : les points d'activité étaient bien datés) |
 | `BF` | totaux du jour | — | `BF` `[pas u32][calories u16]` (gros-boutiste) |
 | `A2` | identifiant de compte | — | `A2` `[id u32]` |
 | `0A` | rapports d'étapes | — | `0B` / `0C`… / `0D` |
@@ -201,6 +201,13 @@ déconnexion.
   00:55 : `BF` perdu). L'intégration attend la fin du transfert repris avant ses commandes.
 - Une « nuit » est ouverte (`AF` avec la date/heure du moment) même sans mesure : en-tête
   seul, ignoré.
+
+## Première nuit reçue (25/11)
+
+`AF` `1a 0b 19 01 29 21 00 4a` → début 2026-11-25 01:41:33, `0x4a` = 74 niveaux (370 min, fin
+07:51) ; `B1` = les 74 niveaux (35 min éveil, 280 min léger, 55 min profond). Le rapport
+d'étape de type 2 (sommeil) daté 07:49 porte `0x0172` = 370 min. Pas de points d'activité
+pendant la nuit (01:35 → 07:54) : le jour 25/11 arrive en **deux blocs `AB`** successifs.
 
 ## Inconnues à vérifier sur le vrai bracelet
 
